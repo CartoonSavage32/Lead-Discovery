@@ -40,3 +40,11 @@ def test_candidate_links_stay_on_site():
     links = candidate_links(HTML, "https://bakery.test/", ["about", "contact", "team"])
     assert "https://bakery.test/about" in links
     assert "https://bakery.test/contact" in links
+
+
+def test_extract_skips_unusable_emails():
+    html = '<a href="mailto:noreply@bakery.test">x</a><p>info@bakery.test</p>'
+    contacts = extract_contacts(html, "https://bakery.test/contact", ContactConfig())
+    emails = {item.email for item in contacts if item.email}
+    assert "info@bakery.test" in emails
+    assert "noreply@bakery.test" not in emails

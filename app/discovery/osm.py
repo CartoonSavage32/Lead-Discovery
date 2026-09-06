@@ -13,7 +13,6 @@ from app.urls import domain_from_url, google_maps_search_url, normalize_website
 logger = logging.getLogger(__name__)
 
 MAX_TRANSIENT_ATTEMPTS = 5
-_TRANSIENT_STATUS_CODES = {429, 504}
 
 
 def _retry_after_seconds(response: httpx.Response, default: float = 30.0) -> float:
@@ -26,8 +25,10 @@ def _retry_after_seconds(response: httpx.Response, default: float = 30.0) -> flo
         return default
 
 
-def _backoff_seconds(attempt: int, response: httpx.Response) -> float:
+def _backoff_seconds(attempt: int, response: httpx.Response | None = None) -> float:
     exponential = float(2 ** (attempt + 1))
+    if response is None:
+        return min(exponential, 60.0)
     hinted = _retry_after_seconds(response, default=exponential)
     return min(max(hinted, exponential), 60.0)
 
@@ -167,8 +168,8 @@ class OsmDiscovery:
         params: dict[str, Any] | None = None,
         data: dict[str, Any] | None = None,
     ) -> httpx.Response:
-        transient_attempts = 0
-        while True:
+        last_error: Exception | None = None
+        for attempt in range(MAX_TRANSIENT_ATTEMPTS):
             try:
                 response = await self.client.request(
                     method,
@@ -178,17 +179,29 @@ class OsmDiscovery:
                     headers={"User-Agent": self.config.user_agent},
                     timeout=self.config.timeout_seconds,
                 )
-            except httpx.RequestError:
+            except httpx.RequestError as exc:
+                last_error = exc
+                if attempt >= MAX_TRANSIENT_ATTEMPTS - 1:
+                    logger.warning(
+                        "%s network error for %s; giving up after %s attempts",
+                        resource,
+                        combination.key,
+                        MAX_TRANSIENT_ATTEMPTS,
+                    )
+                    raise
+                wait = _backoff_seconds(attempt)
                 logger.info(
-                    "Transient network error for %s; waiting 30s before retry",
+                    "%s network error for %s; waiting %ss before retry %s/%s",
+                    resource,
                     combination.key,
+                    int(wait),
+                    attempt + 1,
+                    MAX_TRANSIENT_ATTEMPTS,
                 )
-                await asyncio.sleep(30)
-                logger.info("Retrying %s", combination.key)
+                await asyncio.sleep(wait)
                 continue
-            if response.status_code in _TRANSIENT_STATUS_CODES:
-                transient_attempts += 1
-                if transient_attempts >= MAX_TRANSIENT_ATTEMPTS:
+            if response.status_code == 429 or response.status_code >= 500:
+                if attempt >= MAX_TRANSIENT_ATTEMPTS - 1:
                     logger.warning(
                         "%s %s for %s; giving up after %s attempts",
                         resource,
@@ -197,32 +210,24 @@ class OsmDiscovery:
                         MAX_TRANSIENT_ATTEMPTS,
                     )
                     response.raise_for_status()
-                wait = _backoff_seconds(transient_attempts - 1, response)
+                wait = _backoff_seconds(attempt, response)
                 logger.info(
                     "%s HTTP %s for %s; waiting %ss before retry %s/%s",
                     resource,
                     response.status_code,
                     combination.key,
                     int(wait),
-                    transient_attempts,
+                    attempt + 1,
                     MAX_TRANSIENT_ATTEMPTS,
                 )
                 await asyncio.sleep(wait)
-                logger.info("Retrying %s", combination.key)
-                continue
-            if response.status_code >= 500:
-                wait = _retry_after_seconds(response)
-                logger.info(
-                    "Transient HTTP %s for %s; waiting %ss before retry",
-                    response.status_code,
-                    combination.key,
-                    int(wait),
-                )
-                await asyncio.sleep(wait)
-                logger.info("Retrying %s", combination.key)
                 continue
             response.raise_for_status()
             return response
+        if last_error is not None:
+            raise last_error
+        msg = f"{resource} failed for {combination.key} after {MAX_TRANSIENT_ATTEMPTS} attempts"
+        raise RuntimeError(msg)
 
     async def _nominatim_area(self, combination: Combination) -> int | None:
         response = await self._request(

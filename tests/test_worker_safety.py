@@ -244,6 +244,81 @@ async def test_overpass_gives_up_after_five_transient_attempts(
 
 
 @pytest.mark.asyncio
+async def test_overpass_network_errors_cannot_retry_forever(monkeypatch: pytest.MonkeyPatch):
+    sleeps: list[float] = []
+
+    async def fake_sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    monkeypatch.setattr("app.discovery.osm.asyncio.sleep", fake_sleep)
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "nominatim" in str(request.url):
+            return httpx.Response(
+                200,
+                json=[{"osm_id": 123, "osm_type": "relation"}],
+            )
+        calls["n"] += 1
+        raise httpx.ConnectError("overpass down", request=request)
+
+    combination = Combination(country="India", city="Mumbai", industry="bakery")
+    industry = Industry(name="bakery", osm_tags=[OsmTag(key="shop", value="bakery")])
+    city = City(name="Mumbai", country="India", location_weight=0.9)
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as client:
+        provider = OsmDiscovery(
+            client,
+            DiscoveryConfig(overpass_url="https://overpass.example/api"),
+            [industry],
+            [city],
+        )
+        with pytest.raises(httpx.ConnectError):
+            await provider.discover(combination)
+    assert calls["n"] == MAX_TRANSIENT_ATTEMPTS
+    assert len(sleeps) == MAX_TRANSIENT_ATTEMPTS - 1
+    assert sleeps == [2.0, 4.0, 8.0, 16.0]
+
+
+@pytest.mark.asyncio
+async def test_overpass_502_cannot_retry_forever(monkeypatch: pytest.MonkeyPatch):
+    sleeps: list[float] = []
+
+    async def fake_sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    monkeypatch.setattr("app.discovery.osm.asyncio.sleep", fake_sleep)
+    posts = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "nominatim" in str(request.url):
+            return httpx.Response(
+                200,
+                json=[{"osm_id": 123, "osm_type": "relation"}],
+            )
+        posts["n"] += 1
+        return httpx.Response(502, headers={"Retry-After": "30"})
+
+    combination = Combination(country="India", city="Mumbai", industry="bakery")
+    industry = Industry(name="bakery", osm_tags=[OsmTag(key="shop", value="bakery")])
+    city = City(name="Mumbai", country="India", location_weight=0.9)
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as client:
+        provider = OsmDiscovery(
+            client,
+            DiscoveryConfig(overpass_url="https://overpass.example/api"),
+            [industry],
+            [city],
+        )
+        with pytest.raises(httpx.HTTPStatusError) as exc_info:
+            await provider.discover(combination)
+    assert exc_info.value.response.status_code == 502
+    assert posts["n"] == MAX_TRANSIENT_ATTEMPTS
+    assert len(sleeps) == MAX_TRANSIENT_ATTEMPTS - 1
+    assert all(item <= 60.0 for item in sleeps)
+
+
+@pytest.mark.asyncio
 async def test_failed_overpass_defers_and_continues_to_next_combination(
     app_config, tmp_data: Path
 ):
@@ -280,6 +355,35 @@ async def test_failed_overpass_defers_and_continues_to_next_combination(
     later = app._next_combination()
     assert later is not None
     assert later.key == "India|Mumbai|bakery"
+
+
+@pytest.mark.asyncio
+async def test_overpass_timeout_defers_and_continues_to_next_combination(
+    app_config, tmp_data: Path
+):
+    payload = _businesses(1, "bakery") + _businesses(1, "dentist")
+    (tmp_data / "biz.json").write_text(json.dumps(payload), encoding="utf-8")
+    app = LeadApp(app_config, rng=Random(0))
+    _mark_others(app, {"India|Mumbai|bakery", "India|Mumbai|dentist"})
+    app.store.state.in_progress_combination = "India|Mumbai|bakery"
+    app._defer_cooldown_seconds = 10_000
+
+    async def fake_discover(combination: Combination) -> list:
+        if combination.key == "India|Mumbai|bakery":
+            raise httpx.ConnectTimeout(
+                "timed out",
+                request=httpx.Request("POST", "https://overpass.example/api"),
+            )
+        return []
+
+    app.discover_combination = fake_discover  # type: ignore[method-assign]
+    with pytest.raises(CombinationDeferred):
+        await app.process_one_combination()
+    assert "India|Mumbai|bakery" not in app.store.state.processed_combinations
+    assert app.store.state.in_progress_combination is None
+    nxt = app._next_combination()
+    assert nxt is not None
+    assert nxt.key == "India|Mumbai|dentist"
 
 
 @pytest.mark.asyncio
@@ -337,7 +441,7 @@ async def test_beavercheck_429_does_not_skip_remaining_urls(
 
 
 @pytest.mark.asyncio
-async def test_combination_not_completed_if_beavercheck_fails(app_config, tmp_data: Path):
+async def test_combination_completes_if_one_beavercheck_batch_fails(app_config, tmp_data: Path):
     (tmp_data / "biz.json").write_text(json.dumps(_businesses(13)), encoding="utf-8")
     app = LeadApp(app_config, rng=Random(0))
     _mark_others(app, {"India|Mumbai|bakery"})
@@ -358,12 +462,12 @@ async def test_combination_not_completed_if_beavercheck_fails(app_config, tmp_da
     original = beavercheck.BeaverCheckClient.batch_lookup
     beavercheck.BeaverCheckClient.batch_lookup = fake_batch  # type: ignore[method-assign]
     try:
-        with pytest.raises(httpx.HTTPStatusError):
-            await app.process_one_combination()
+        finished = await app.process_one_combination()
     finally:
         beavercheck.BeaverCheckClient.batch_lookup = original  # type: ignore[method-assign]
-    assert "India|Mumbai|bakery" not in app.store.state.processed_combinations
-    assert app.store.state.in_progress_combination == "India|Mumbai|bakery"
+    assert finished is not None
+    assert finished.key in app.store.state.processed_combinations
+    assert calls["n"] == 3
 
 
 @pytest.mark.asyncio

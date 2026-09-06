@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 
 import httpx
 
-from app.audit.beavercheck import BeaverCheckClient
+from app.audit.beavercheck import BeaverCheckClient, missing_audit
 from app.audit.service import AuditService, unique_website_urls
 from app.catalog import load_cities, load_countries, load_industries
 from app.combinations import load_geo, next_combination
@@ -28,7 +28,7 @@ from app.models import (
     ReportHistoryEntry,
 )
 from app.rate_limit import RateLimiter
-from app.reports.csv_report import report_filename, summarize, write_csv
+from app.reports.csv_report import hourly_report_filename, hourly_summary, report_filename, summarize, write_csv
 from app.reports.telegram import TelegramClient
 from app.scheduler import report_due, utcnow
 from app.scoring import build_lead
@@ -55,6 +55,7 @@ class LeadApp:
         self.store = StateStore(config.state_path)
         config.reports_dir.mkdir(parents=True, exist_ok=True)
         self._hourly_leads: list[Lead] = []
+        self._hourly_keys: set[str] = set()
         self._hourly_interval_seconds = 3600.0
         self._hourly_report_lock = asyncio.Lock()
         self._last_hourly_report_monotonic: float | None = None
@@ -135,13 +136,24 @@ class LeadApp:
                 domain.last_audit_at = audit.fetched_at
                 domain.last_score = audit.score
                 self.store.state.domains[record.domain] = domain
-        lead = build_lead(record, audit, self.config.scoring, self.config.minimum_score)
-        if lead.qualified and lead.website_status == "has_website" and lead.business.website:
-            lead.contacts = await discover_contacts(
-                client,
-                lead.business.website,
-                self.config.contacts,
-            )
+        contacts = []
+        if record.website:
+            try:
+                contacts = await discover_contacts(
+                    client,
+                    record.website,
+                    self.config.contacts,
+                )
+            except Exception:
+                logger.exception("Contact discovery failed for %s; continuing", record.website)
+                contacts = []
+        lead = build_lead(
+            record,
+            audit,
+            self.config.scoring,
+            self.config.minimum_score,
+            contacts=contacts,
+        )
         key = business_key(
             lead.business.domain,
             lead.business.name,
@@ -149,7 +161,9 @@ class LeadApp:
             lead.business.country,
         )
         self.store.state.leads[key] = lead
-        self._hourly_leads.append(lead)
+        if lead.qualified and key not in self._hourly_keys:
+            self._hourly_leads.append(lead)
+            self._hourly_keys.add(key)
         if lead.business.domain:
             domain = self.store.state.domains.get(lead.business.domain)
             if domain:
@@ -182,7 +196,15 @@ class LeadApp:
                     total_batches,
                     len(chunk),
                 )
-                batch = await audits.audit_batch(chunk)
+                try:
+                    batch = await audits.audit_batch(chunk)
+                except httpx.HTTPError:
+                    logger.exception(
+                        "BeaverCheck batch %s/%s failed after retries; continuing without those audits",
+                        batch_no,
+                        total_batches,
+                    )
+                    batch = {url: missing_audit(url) for url in chunk}
                 by_domain.update({item.domain: item for item in batch.values()})
                 processed_urls += len(chunk)
                 chunk_domains = {domain_from_url(url) for url in chunk}
@@ -286,11 +308,9 @@ class LeadApp:
         self._begin_combination(combination)
         try:
             records = await self.discover_combination(combination)
-        except httpx.HTTPStatusError as exc:
-            if exc.response is not None and exc.response.status_code in {429, 504}:
-                self._defer_combination(combination)
-                raise CombinationDeferred(combination) from exc
-            raise
+        except httpx.HTTPError as exc:
+            self._defer_combination(combination)
+            raise CombinationDeferred(combination) from exc
         self._save_businesses(records)
         logger.info("Found %s businesses", len(records))
         return combination, records
@@ -314,11 +334,12 @@ class LeadApp:
         telegram: TelegramClient | None = None,
     ) -> None:
         leads = list(self._hourly_leads)
-        summary = summarize(leads)
+        summary = hourly_summary(leads)
         client = telegram
         owned_client: httpx.AsyncClient | None = None
         tmp_dir = Path(tempfile.mkdtemp(prefix="hourly-leads-"))
-        path = tmp_dir / "hourly-leads.csv"
+        filename = hourly_report_filename(utcnow(), self.config.timezone)
+        path = tmp_dir / filename
         try:
             if client is None:
                 owned_client = self._client()
@@ -332,6 +353,7 @@ class LeadApp:
             write_csv(path, leads)
             await client.send_document(path, caption=summary)
             self._hourly_leads.clear()
+            self._hourly_keys.clear()
             self._last_hourly_report_monotonic = time.monotonic()
             logger.info("Sent hourly Telegram report (%s leads)", len(leads))
         except Exception:
@@ -387,8 +409,18 @@ class LeadApp:
                     await asyncio.sleep(self.config.loop_delay_seconds)
                     continue
                 except httpx.HTTPError:
-                    logger.exception("Transient HTTP failure; will retry the same combination")
-                    await asyncio.sleep(30)
+                    key = self.store.state.in_progress_combination
+                    current = self._combination_by_key(key) if key else None
+                    if current is not None:
+                        self._defer_combination(current)
+                        logger.exception(
+                            "HTTP failure for %s; deferring and continuing",
+                            current.key,
+                        )
+                        await asyncio.sleep(self.config.loop_delay_seconds)
+                        continue
+                    logger.exception("Transient HTTP failure; continuing")
+                    await asyncio.sleep(self.config.loop_delay_seconds)
                     continue
                 if combination is None:
                     await self.maybe_report()

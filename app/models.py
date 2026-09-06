@@ -115,6 +115,9 @@ class Lead(BaseModel):
     audit: AuditResult | None = None
     contacts: list[Contact] = Field(default_factory=list)
     qualified: bool = False
+    qualification: str = "reject"
+    qualification_reason: str | None = None
+    outreach_email: str | None = None
     scored_at: datetime
     top_finding: Finding | None = None
     top_metric: str | None = None

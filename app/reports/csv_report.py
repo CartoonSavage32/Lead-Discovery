@@ -40,7 +40,9 @@ def sort_leads(leads: list[Lead]) -> list[Lead]:
 def lead_row(rank: int, lead: Lead) -> dict[str, str]:
     contact = lead.contacts[0] if lead.contacts else None
     finding = lead.top_finding
-    reasons = "; ".join(f"{item.message} ({item.points:.1f})" for item in lead.reasons)
+    reason = lead.qualification_reason or "; ".join(
+        f"{item.message} ({item.points:.1f})" for item in lead.reasons
+    )
     return {
         "Rank": str(rank),
         "Score": f"{lead.score:.2f}",
@@ -55,13 +57,15 @@ def lead_row(rank: int, lead: Lead) -> dict[str, str]:
         if lead.business.review_count is None
         else str(lead.business.review_count),
         "BeaverCheck URL": (lead.audit.beavercheck_url if lead.audit else "") or "",
-        "Reason": reasons,
+        "Reason": reason,
         "Finding": (finding.title or finding.message or "") if finding else "",
         "Severity": (finding.severity or "") if finding else "",
         "Metric": lead.top_metric or "",
         "Decision Maker": (contact.name if contact else "") or "",
         "Role": (contact.role if contact else "") or "",
-        "Email": (contact.email if contact else lead.business.email) or "",
+        "Email": lead.outreach_email
+        or (contact.email if contact else lead.business.email)
+        or "",
         "Phone": (contact.phone if contact else lead.business.phone) or "",
         "Google Maps URL": lead.business.google_maps_url,
     }
@@ -87,12 +91,30 @@ def report_filename(now: datetime, timezone: str) -> str:
     return f"leads-{local.strftime('%Y-%m-%d')}.csv"
 
 
+def hourly_report_filename(now: datetime, timezone: str) -> str:
+    local = now.astimezone(ZoneInfo(timezone))
+    return f"leads-{local.strftime('%Y-%m-%d-%H-%M')}.csv"
+
+
 def summarize(leads: list[Lead]) -> str:
     website = sum(1 for lead in leads if lead.website_status == "has_website")
     none = sum(1 for lead in leads if lead.website_status == "no_website")
     ranked = sort_leads(leads)
     top = ranked[0] if ranked else None
     top_line = f"{top.business.name} - {top.score:.0f}" if top else "n/a"
+    return (
+        f"Website leads: {website}\n"
+        f"No-website leads: {none}\n"
+        f"Top opportunity: {top_line}"
+    )
+
+
+def hourly_summary(leads: list[Lead]) -> str:
+    website = sum(1 for lead in leads if lead.website_status == "has_website")
+    none = sum(1 for lead in leads if lead.website_status == "no_website")
+    ranked = sort_leads(leads)
+    top = ranked[0] if ranked else None
+    top_line = top.business.name if top else "n/a"
     return (
         f"Website leads: {website}\n"
         f"No-website leads: {none}\n"

@@ -30,6 +30,17 @@ async def discover_contacts(
     website: str,
     config: ContactConfig,
 ) -> list[Contact]:
+    try:
+        return await _discover_contacts(client, website, config)
+    except Exception:
+        return []
+
+
+async def _discover_contacts(
+    client: httpx.AsyncClient,
+    website: str,
+    config: ContactConfig,
+) -> list[Contact]:
     pages = [website]
     try:
         home = await _fetch_httpx(client, website, config.timeout_seconds)

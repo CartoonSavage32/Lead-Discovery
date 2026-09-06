@@ -162,7 +162,7 @@ class BeaverCheckClient:
     async def _send(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
         delay = self.config.backoff_seconds
         last_error: Exception | None = None
-        attempts = self.config.max_retries + 1
+        attempts = min(5, max(1, self.config.max_retries + 1))
         for attempt in range(attempts):
             await self.limiter.acquire()
             try:
@@ -174,13 +174,13 @@ class BeaverCheckClient:
                 )
             except httpx.RequestError as exc:
                 last_error = exc
-                if attempt >= self.config.max_retries:
+                if attempt >= attempts - 1:
                     raise
-                await asyncio.sleep(min(delay, self.config.backoff_max_seconds))
+                await asyncio.sleep(min(delay, 60.0, self.config.backoff_max_seconds))
                 delay *= 2
                 continue
             if response.status_code == 429:
-                if attempt >= self.config.max_retries:
+                if attempt >= attempts - 1:
                     response.raise_for_status()
                 retry_after = response.headers.get("Retry-After")
                 wait = (
@@ -188,13 +188,13 @@ class BeaverCheckClient:
                     if retry_after
                     else min(delay, self.config.backoff_max_seconds)
                 )
-                await asyncio.sleep(wait)
+                await asyncio.sleep(min(max(wait, 1.0), 60.0))
                 delay *= 2
                 continue
             if response.status_code >= 500:
-                if attempt >= self.config.max_retries:
+                if attempt >= attempts - 1:
                     response.raise_for_status()
-                await asyncio.sleep(min(delay, self.config.backoff_max_seconds))
+                await asyncio.sleep(min(delay, 60.0, self.config.backoff_max_seconds))
                 delay *= 2
                 continue
             return response
