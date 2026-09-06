@@ -1,5 +1,4 @@
 timezone: Asia/Kolkata
-report_time: "20:30"
 minimum_score: 55
 data_dir: data
 loop_delay_seconds: 5

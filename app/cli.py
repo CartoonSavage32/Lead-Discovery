@@ -23,7 +23,8 @@ def _configure_logging() -> None:
 def build_app() -> LeadApp:
     load_dotenv()
     config_path = Path(os.environ.get("CONFIG_PATH", "config.yaml"))
-    data_dir = Path(os.environ.get("DATA_DIR", "data"))
+    data_dir_env = os.environ.get("DATA_DIR")
+    data_dir = Path(data_dir_env) if data_dir_env else None
     config = load_config(config_path, data_dir=data_dir)
     config.telegram.bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", config.telegram.bot_token)
     config.telegram.chat_id = os.environ.get("TELEGRAM_CHAT_ID", config.telegram.chat_id)
