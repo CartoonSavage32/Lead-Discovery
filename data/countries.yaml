@@ -1,0 +1,54 @@
+- name: India
+  code: "IN"
+- name: United States
+  code: "US"
+- name: United Kingdom
+  code: "GB"
+- name: Germany
+  code: "DE"
+- name: Japan
+  code: "JP"
+- name: Brazil
+  code: "BR"
+- name: United Arab Emirates
+  code: "AE"
+- name: Australia
+  code: "AU"
+- name: France
+  code: "FR"
+- name: Mexico
+  code: "MX"
+- name: Canada
+  code: "CA"
+- name: Netherlands
+  code: "NL"
+- name: Ireland
+  code: "IE"
+- name: Switzerland
+  code: "CH"
+- name: Denmark
+  code: "DK"
+- name: Norway
+  code: "NO"
+- name: Sweden
+  code: "SE"
+- name: Austria
+  code: "AT"
+- name: Belgium
+  code: "BE"
+- name: Saudi Arabia
+  code: "SA"
+- name: Qatar
+  code: "QA"
+- name: Kuwait
+  code: "KW"
+- name: Bahrain
+  code: "BH"
+- name: Oman
+  code: "OM"
+- name: Singapore
+  code: "SG"
+- name: Hong Kong
+  code: "HK"
+- name: New Zealand
+  code: "NZ"

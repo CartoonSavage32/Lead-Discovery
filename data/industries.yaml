@@ -1,0 +1,70 @@
+- name: bakery
+  commercial: true
+  osm_tags:
+    - {key: shop, value: bakery}
+    - {key: craft, value: bakery}
+- name: restaurant
+  commercial: true
+  osm_tags:
+    - {key: amenity, value: restaurant}
+- name: cafe
+  commercial: true
+  osm_tags:
+    - {key: amenity, value: cafe}
+- name: dentist
+  commercial: true
+  osm_tags:
+    - {key: amenity, value: dentist}
+    - {key: healthcare, value: dentist}
+- name: lawyer
+  commercial: true
+  osm_tags:
+    - {key: office, value: lawyer}
+    - {key: office, value: attorney}
+- name: plumber
+  commercial: true
+  osm_tags:
+    - {key: craft, value: plumber}
+    - {key: shop, value: plumbing}
+- name: electrician
+  commercial: true
+  osm_tags:
+    - {key: craft, value: electrician}
+- name: hairdresser
+  commercial: true
+  osm_tags:
+    - {key: shop, value: hairdresser}
+    - {key: shop, value: beauty}
+- name: hotel
+  commercial: true
+  osm_tags:
+    - {key: tourism, value: hotel}
+- name: gym
+  commercial: true
+  osm_tags:
+    - {key: leisure, value: fitness_centre}
+    - {key: leisure, value: sports_centre}
+- name: pharmacy
+  commercial: true
+  osm_tags:
+    - {key: amenity, value: pharmacy}
+- name: real estate
+  commercial: true
+  osm_tags:
+    - {key: office, value: estate_agent}
+- name: accountant
+  commercial: true
+  osm_tags:
+    - {key: office, value: accountant}
+- name: veterinarian
+  commercial: true
+  osm_tags:
+    - {key: amenity, value: veterinary}
+- name: auto repair
+  commercial: true
+  osm_tags:
+    - {key: shop, value: car_repair}
+- name: florist
+  commercial: true
+  osm_tags:
+    - {key: shop, value: florist}

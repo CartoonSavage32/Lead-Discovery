@@ -1,0 +1,141 @@
+- name: Austin
+  country: United States
+  location_weight: 0.85
+- name: Denver
+  country: United States
+  location_weight: 0.8
+- name: London
+  country: United Kingdom
+  location_weight: 0.95
+- name: Manchester
+  country: United Kingdom
+  location_weight: 0.75
+- name: Berlin
+  country: Germany
+  location_weight: 0.88
+- name: Munich
+  country: Germany
+  location_weight: 0.82
+- name: São Paulo
+  country: Brazil
+  location_weight: 0.9
+- name: Dubai
+  country: United Arab Emirates
+  location_weight: 0.93
+- name: Sydney
+  country: Australia
+  location_weight: 0.88
+- name: Paris
+  country: France
+  location_weight: 0.94
+- name: Mexico City
+  country: Mexico
+  location_weight: 0.86
+  
+- name: New York
+  country: United States
+  location_weight: 1.0
+
+- name: Los Angeles
+  country: United States
+  location_weight: 0.95
+
+- name: Chicago
+  country: United States
+  location_weight: 0.92
+
+- name: Miami
+  country: United States
+  location_weight: 0.92
+
+- name: Toronto
+  country: Canada
+  location_weight: 0.95
+
+- name: Vancouver
+  country: Canada
+  location_weight: 0.9
+
+- name: Montreal
+  country: Canada
+  location_weight: 0.85
+
+- name: Amsterdam
+  country: Netherlands
+  location_weight: 0.95
+
+- name: Dublin
+  country: Ireland
+  location_weight: 0.95
+
+- name: Zurich
+  country: Switzerland
+  location_weight: 1.0
+
+- name: Geneva
+  country: Switzerland
+  location_weight: 0.98
+
+- name: Copenhagen
+  country: Denmark
+  location_weight: 0.92
+
+- name: Oslo
+  country: Norway
+  location_weight: 0.92
+
+- name: Stockholm
+  country: Sweden
+  location_weight: 0.9
+
+- name: Vienna
+  country: Austria
+  location_weight: 0.88
+
+- name: Brussels
+  country: Belgium
+  location_weight: 0.88
+
+- name: Riyadh
+  country: Saudi Arabia
+  location_weight: 0.95
+
+- name: Doha
+  country: Qatar
+  location_weight: 0.95
+
+- name: Kuwait City
+  country: Kuwait
+  location_weight: 0.95
+
+- name: Manama
+  country: Bahrain
+  location_weight: 0.9
+
+- name: Muscat
+  country: Oman
+  location_weight: 0.9
+
+- name: Singapore
+  country: Singapore
+  location_weight: 1.0
+
+- name: Hong Kong
+  country: Hong Kong
+  location_weight: 0.95
+
+- name: Auckland
+  country: New Zealand
+  location_weight: 0.88
+
+- name: Melbourne
+  country: Australia
+  location_weight: 0.92
+
+- name: Brisbane
+  country: Australia
+  location_weight: 0.85
+
+- name: Perth
+  country: Australia
+  location_weight: 0.82

@@ -1,0 +1,11 @@
+playwright==1.48.0
+httpx==0.28.1
+pydantic==2.11.7
+beautifulsoup4==4.13.4
+PyYAML==6.0.2
+python-dotenv==1.1.1
+pytest==8.4.1
+pytest-asyncio==1.0.0
+ruff==0.12.8
+pyright==1.1.403
+tzdata==2025.2

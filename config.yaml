@@ -1,0 +1,81 @@
+timezone: Asia/Kolkata
+report_time: "20:30"
+minimum_score: 55
+data_dir: data
+loop_delay_seconds: 5
+countries_file: data/countries.yaml
+cities_file: data/cities.yaml
+industries_file: data/industries.yaml
+
+audit:
+  refresh_interval_hours: 168
+  rate_limit_per_minute: 25
+  batch_size: 5
+  base_url: https://beavercheck.com/api/v2
+  timeout_seconds: 30
+  max_retries: 4
+  backoff_seconds: 1.0
+  backoff_max_seconds: 32.0
+
+discovery:
+  provider: osm
+  max_results_per_combination: 40
+  timeout_seconds: 90
+  nominatim_url: https://nominatim.openstreetmap.org
+  overpass_url: https://overpass-api.de/api/interpreter
+  user_agent: "WebsiteLeads/1.0 (lead research; contact@localhost)"
+  nominatim_delay_seconds: 1.1
+
+scoring:
+  website:
+    performance_weight: 20
+    mobile_weight: 15
+    cwv_weight: 15
+    broken_weight: 10
+    security_weight: 20
+    seo_weight: 10
+    accessibility_weight: 10
+    severe_performance_below: 50
+    poor_mobile_below: 50
+    lcp_poor_ms: 4000
+    cls_poor: 0.25
+    tbt_poor_ms: 600
+    seo_poor_below: 55
+    accessibility_poor_below: 55
+    security_poor_below: 55
+  no_website:
+    rating_weight: 35
+    review_weight: 25
+    category_weight: 25
+    location_weight: 15
+    rating_full_at: 4.5
+    reviews_full_at: 100
+
+contacts:
+  path_keywords:
+    - about
+    - contact
+    - team
+    - leadership
+    - kontakt
+    - equipe
+    - nosotros
+    - chi-siamo
+    - sobre
+    - impressum
+    - 会社概要
+    - お問い合わせ
+  role_keywords:
+    - owner
+    - founder
+    - co-founder
+    - director
+    - partner
+    - principal
+    - manager
+    - proprietor
+    - ceo
+    - managing director
+  max_pages: 6
+  timeout_seconds: 20
+  use_playwright_fallback: true
