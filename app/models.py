@@ -15,6 +15,7 @@ class Industry(BaseModel):
     name: str
     commercial: bool = True
     osm_tags: list[OsmTag] = Field(default_factory=list)
+    geoapify_categories: list[str] = Field(default_factory=list)
 
 
 class Country(BaseModel):

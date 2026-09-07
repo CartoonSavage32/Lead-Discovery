@@ -18,6 +18,7 @@ from app.combinations import load_geo, next_combination
 from app.config import AppConfig
 from app.contacts.discover import discover_contacts
 from app.discovery.factory import build_discovery
+from app.discovery.geoapify import GeoapifyQuotaExceeded
 from app.models import (
     AuditResult,
     BusinessRecord,
@@ -62,6 +63,8 @@ class LeadApp:
         self._last_hourly_report_monotonic: float | None = None
         self._deferred_until: dict[str, float] = {}
         self._defer_cooldown_seconds = 300.0
+        self._discovery_paused_until = 0.0
+        self._quota_message_logged = False
 
     def _client(self) -> httpx.AsyncClient:
         return httpx.AsyncClient(
@@ -116,9 +119,28 @@ class LeadApp:
             self.store.state.in_progress_combination = None
         self._deferred_until[combination.key] = time.monotonic() + self._defer_cooldown_seconds
         logger.warning(
-            "Deferring %s after Overpass retries exhausted; will retry later",
+            "Deferring %s after discovery failure; will retry later",
             combination.key,
         )
+
+    def _discovery_paused(self) -> bool:
+        if self._discovery_paused_until <= 0:
+            return False
+        if time.monotonic() < self._discovery_paused_until:
+            return True
+        self._discovery_paused_until = 0.0
+        self._quota_message_logged = False
+        logger.info("Geoapify discovery pause ended; will retry discovery")
+        return False
+
+    def _pause_discovery_quota(self, combination: Combination) -> None:
+        if self.store.state.in_progress_combination == combination.key:
+            self.store.state.in_progress_combination = None
+        minutes = max(1, self.config.discovery.geoapify.quota_cooldown_minutes)
+        self._discovery_paused_until = time.monotonic() + (minutes * 60)
+        if not self._quota_message_logged:
+            logger.warning("Geoapify daily quota exhausted, pausing discovery until reset")
+            self._quota_message_logged = True
 
     async def discover_combination(self, combination: Combination) -> list[BusinessRecord]:
         async with self._client() as client:
@@ -308,10 +330,15 @@ class LeadApp:
         if combination is None:
             logger.info("No unprocessed country/city/industry combinations remain")
             return None, []
+        if self._discovery_paused():
+            return None, []
         logger.info("Discovering %s", combination.key)
         self._begin_combination(combination)
         try:
             records = await self.discover_combination(combination)
+        except GeoapifyQuotaExceeded as exc:
+            self._pause_discovery_quota(combination)
+            raise CombinationDeferred(combination) from exc
         except httpx.HTTPError as exc:
             self._defer_combination(combination)
             raise CombinationDeferred(combination) from exc
@@ -406,8 +433,11 @@ class LeadApp:
                 try:
                     combination = await self.process_one_combination()
                 except CombinationDeferred as exc:
+                    if self._discovery_paused():
+                        await asyncio.sleep(self.config.loop_delay_seconds)
+                        continue
                     logger.warning(
-                        "Skipped %s after Overpass failure; continuing to the next combination",
+                        "Skipped %s after discovery failure; continuing to the next combination",
                         exc.combination.key,
                     )
                     await asyncio.sleep(self.config.loop_delay_seconds)

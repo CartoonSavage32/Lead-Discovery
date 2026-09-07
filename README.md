@@ -10,7 +10,7 @@ Continuously discovers local businesses by **country × city × industry**, audi
 
   `https://www.google.com/maps/search/?api=1&query=<industry>+<city>+<country>`
 
-Discovery itself uses **OpenStreetMap** (Nominatim + Overpass), which is a permitted public dataset. Swap the provider without touching scoring, audit, contacts, or reports.
+Discovery itself uses **Geoapify Places** by default (with OpenStreetMap still available as `discovery.provider: osm`). Swap the provider without touching scoring, audit, contacts, or reports.
 
 Website audits use only the BeaverCheck public API (`POST /api/v2/batch`). The app never submits scans, never calls `/submit`, and never treats a missing public audit as a bad website. Audit payloads are not written to disk.
 
@@ -30,14 +30,17 @@ playwright install chromium
 copy .env.example .env
 ```
 
-Set Telegram values in `.env`:
+Set Telegram and Geoapify values in `.env`:
 
 ```
 TELEGRAM_BOT_TOKEN=...
 TELEGRAM_CHAT_ID=...
+GEOAPIFY_API_KEY=...
 ```
 
-Edit `config.yaml`, `data/countries.yaml`, `data/cities.yaml`, and `data/industries.yaml`. Cities are scoped to a country. Industries carry OSM tags used only by the OSM provider.
+The app fails at startup if `discovery.provider` is `geoapify` and `GEOAPIFY_API_KEY` is missing.
+
+Edit `config.yaml`, `data/countries.yaml`, `data/cities.yaml`, and `data/industries.yaml`. Cities are scoped to a country. Industries carry OSM tags (used by the OSM provider) and Geoapify Places categories (used by the default provider). City geocodes are cached in `data/geocode_cache.json` so the same city is not billed again for every industry.
 
 ## Commands
 
@@ -77,4 +80,4 @@ pyright
 
 ## Replacing discovery
 
-Set `discovery.provider` to `file` and `discovery.file_path` to a JSON list of business records, or implement another class with `async def discover(combination) -> list[BusinessRecord]` and register it in `app/discovery/factory.py`.
+Set `discovery.provider` to `file` and `discovery.file_path` to a JSON list of business records, `osm` for Nominatim + Overpass, or `geoapify` (default). Implement another class with `async def discover(combination) -> list[BusinessRecord]` and register it in `app/discovery/factory.py`.

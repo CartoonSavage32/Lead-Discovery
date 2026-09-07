@@ -3,68 +3,104 @@
   osm_tags:
     - {key: shop, value: bakery}
     - {key: craft, value: bakery}
+  geoapify_categories:
+    - commercial.food_and_drink.bakery
 - name: restaurant
   commercial: true
   osm_tags:
     - {key: amenity, value: restaurant}
+  geoapify_categories:
+    - catering.restaurant
 - name: cafe
   commercial: true
   osm_tags:
     - {key: amenity, value: cafe}
+  geoapify_categories:
+    - catering.cafe
 - name: dentist
   commercial: true
   osm_tags:
     - {key: amenity, value: dentist}
     - {key: healthcare, value: dentist}
+  geoapify_categories:
+    - healthcare.dentist
 - name: lawyer
   commercial: true
   osm_tags:
     - {key: office, value: lawyer}
     - {key: office, value: attorney}
+  geoapify_categories:
+    - office.lawyer
 - name: plumber
   commercial: true
   osm_tags:
     - {key: craft, value: plumber}
     - {key: shop, value: plumbing}
+  geoapify_categories:
+    - commercial.houseware_and_hardware
 - name: electrician
   commercial: true
   osm_tags:
     - {key: craft, value: electrician}
+  geoapify_categories:
+    - service.electrician
 - name: hairdresser
   commercial: true
   osm_tags:
     - {key: shop, value: hairdresser}
     - {key: shop, value: beauty}
+  geoapify_categories:
+    - service.beauty.hairdresser
 - name: hotel
   commercial: true
   osm_tags:
     - {key: tourism, value: hotel}
+  geoapify_categories:
+    - accommodation.hotel
 - name: gym
   commercial: true
   osm_tags:
     - {key: leisure, value: fitness_centre}
     - {key: leisure, value: sports_centre}
+  geoapify_categories:
+    - sport.fitness.gym
+    - sport.fitness.fitness_centre
 - name: pharmacy
   commercial: true
   osm_tags:
     - {key: amenity, value: pharmacy}
+  geoapify_categories:
+    - healthcare.pharmacy
+    - commercial.health_and_beauty.pharmacy
 - name: real estate
   commercial: true
   osm_tags:
     - {key: office, value: estate_agent}
+  geoapify_categories:
+    - office.estate_agent
+    - service.estate_agent
 - name: accountant
   commercial: true
   osm_tags:
     - {key: office, value: accountant}
+  geoapify_categories:
+    - office.accountant
 - name: veterinarian
   commercial: true
   osm_tags:
     - {key: amenity, value: veterinary}
+  geoapify_categories:
+    - pet.veterinary
 - name: auto repair
   commercial: true
   osm_tags:
     - {key: shop, value: car_repair}
+  geoapify_categories:
+    - service.vehicle.repair.car
+    - service.vehicle.repair
 - name: florist
   commercial: true
   osm_tags:
     - {key: shop, value: florist}
+  geoapify_categories:
+    - commercial.florist

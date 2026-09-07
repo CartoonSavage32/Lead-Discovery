@@ -8,7 +8,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from app.config import load_config
+from app.config import apply_runtime_env, load_config, require_discovery_credentials
 from app.pipeline import LeadApp
 from app.reports.telegram import TelegramClient
 
@@ -18,6 +18,7 @@ def _configure_logging() -> None:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 def build_app() -> LeadApp:
@@ -26,8 +27,8 @@ def build_app() -> LeadApp:
     data_dir_env = os.environ.get("DATA_DIR")
     data_dir = Path(data_dir_env) if data_dir_env else None
     config = load_config(config_path, data_dir=data_dir)
-    config.telegram.bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", config.telegram.bot_token)
-    config.telegram.chat_id = os.environ.get("TELEGRAM_CHAT_ID", config.telegram.chat_id)
+    apply_runtime_env(config)
+    require_discovery_credentials(config)
     state_path = os.environ.get("STATE_PATH")
     if state_path:
         config.state_file = state_path

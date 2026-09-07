@@ -7,6 +7,7 @@ __pycache__/
 .env
 data/state.json
 data/state.json.tmp
+data/geocode_cache.json
 data/cache/
 data/reports/*.csv
 *.log

@@ -50,8 +50,16 @@ class AuditConfig(BaseModel):
     backoff_max_seconds: float = 32.0
 
 
+class GeoapifyConfig(BaseModel):
+    requests_per_second: float = 5
+    radius_meters: int = 15000
+    daily_credit_budget: int = 3000
+    quota_cooldown_minutes: int = 60
+    api_key: str = ""
+
+
 class DiscoveryConfig(BaseModel):
-    provider: str = "osm"
+    provider: str = "geoapify"
     max_results_per_combination: int = 50
     timeout_seconds: float = 90
     nominatim_url: str = "https://nominatim.openstreetmap.org"
@@ -61,6 +69,7 @@ class DiscoveryConfig(BaseModel):
     file_path: str | None = None
     nominatim_delay_seconds: float = 1.1
     overpass_min_interval_seconds: float = 1.75
+    geoapify: GeoapifyConfig = Field(default_factory=GeoapifyConfig)
 
 
 class ContactConfig(BaseModel):
@@ -117,6 +126,7 @@ class AppConfig(BaseModel):
     scoring: ScoringConfig = Field(default_factory=ScoringConfig)
     contacts: ContactConfig = Field(default_factory=ContactConfig)
     telegram: TelegramConfig = Field(default_factory=TelegramConfig)
+    geocode_cache_path: Path = Path("data/geocode_cache.json")
 
     @property
     def state_path(self) -> Path:
@@ -127,6 +137,16 @@ class AppConfig(BaseModel):
     @property
     def reports_dir(self) -> Path:
         return self.data_dir / "reports"
+
+    @property
+    def resolved_geocode_cache_path(self) -> Path:
+        path = Path(self.geocode_cache_path)
+        if path.is_absolute():
+            return path
+        parts = path.parts
+        if parts and parts[0] == "data":
+            return self.data_dir.joinpath(*parts[1:])
+        return self.data_dir / path
 
 
 def _load_yaml(path: Path) -> Any:
@@ -139,3 +159,23 @@ def load_config(config_path: Path, data_dir: Path | None = None) -> AppConfig:
     if data_dir is not None:
         raw["data_dir"] = str(data_dir)
     return AppConfig.model_validate(raw)
+
+
+def apply_runtime_env(config: AppConfig) -> AppConfig:
+    import os
+
+    config.telegram.bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", config.telegram.bot_token)
+    config.telegram.chat_id = os.environ.get("TELEGRAM_CHAT_ID", config.telegram.chat_id)
+    geo_key = os.environ.get("GEOAPIFY_API_KEY") or os.environ.get("GEO_API_KEY")
+    if geo_key:
+        config.discovery.geoapify.api_key = geo_key
+    return config
+
+
+def require_discovery_credentials(config: AppConfig) -> None:
+    provider = config.discovery.provider.lower()
+    if provider == "geoapify" and not str(config.discovery.geoapify.api_key or "").strip():
+        raise ValueError(
+            "GEOAPIFY_API_KEY is required when discovery.provider is geoapify. "
+            "Add it to .env and restart."
+        )
