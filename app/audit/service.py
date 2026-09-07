@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 from typing import Protocol
 
 from app.audit.beavercheck import missing_audit
 from app.config import AuditConfig
 from app.models import AuditResult
 from app.urls import domain_from_url, normalize_website
+
+logger = logging.getLogger(__name__)
 
 
 class AuditClient(Protocol):
@@ -27,10 +30,20 @@ def unique_website_urls(urls: list[str]) -> list[str]:
     return unique
 
 
+def _usable(audit: AuditResult | None) -> bool:
+    return audit is not None and audit.found
+
+
 class AuditService:
-    def __init__(self, client: AuditClient, config: AuditConfig) -> None:
+    def __init__(
+        self,
+        client: AuditClient,
+        config: AuditConfig,
+        fallback: AuditClient | None = None,
+    ) -> None:
         self.client = client
         self.config = config
+        self.fallback = fallback
 
     async def audit_batch(self, urls: list[str]) -> dict[str, AuditResult]:
         if not urls:
@@ -39,7 +52,11 @@ class AuditService:
         if len(urls) > batch_size:
             msg = f"BeaverCheck batch accepts at most {batch_size} URLs"
             raise ValueError(msg)
-        batch = await self.client.batch_lookup(urls)
+        try:
+            batch = await self.client.batch_lookup(urls)
+        except Exception:
+            logger.warning("BeaverCheck batch failed; trying PageSpeed fallback", exc_info=True)
+            batch = {}
         results: dict[str, AuditResult] = {}
         for url in urls:
             matched = batch.get(url)
@@ -48,5 +65,24 @@ class AuditService:
                     if domain_from_url(key) == domain_from_url(url):
                         matched = value
                         break
-            results[url] = matched if matched is not None else missing_audit(url)
+            if _usable(matched):
+                results[url] = matched
+                continue
+            results[url] = await self._fallback_or_missing(url, matched)
         return results
+
+    async def _fallback_or_missing(
+        self,
+        url: str,
+        current: AuditResult | None,
+    ) -> AuditResult:
+        if self.fallback is None:
+            return current if current is not None else missing_audit(url)
+        try:
+            alt_batch = await self.fallback.batch_lookup([url])
+            alt = alt_batch.get(url)
+            if _usable(alt):
+                return alt
+        except Exception:
+            logger.warning("PageSpeed fallback failed for %s", url, exc_info=True)
+        return current if current is not None else missing_audit(url)

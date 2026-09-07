@@ -8,10 +8,10 @@ from urllib.parse import urlparse
 import httpx
 
 from app.config import ContactConfig
-from app.contacts.email import usable_email_rejection_reason
+from app.contacts.email import domain_can_receive_mail, usable_email_rejection_reason
 from app.contacts.extract import EMAIL_RE, candidate_links, extract_contacts
 from app.models import Contact, WebsiteSignals
-from app.contacts.signals import SLOW_LOAD_SECONDS, check_basic_website_signals
+from app.contacts.signals import check_basic_website_signals
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +71,8 @@ def _log_email_candidates(website: str, html: str) -> None:
     accepted: list[str] = []
     for item in raw:
         reason = usable_email_rejection_reason(item)
+        if reason is None and not domain_can_receive_mail(item):
+            reason = "no_mx"
         if reason:
             rejected.append(f"{item}->{reason}")
         else:

@@ -129,6 +129,8 @@ def parse_audit_payload(url: str, payload: dict[str, Any]) -> AuditResult:
         findings=_parse_findings(payload.get("findings")),
         findings_count=_findings_count(payload.get("findings_count")),
         beavercheck_url=beavercheck_url,
+        report_url=beavercheck_url,
+        source="beavercheck",
         job_id=payload.get("job_id"),
         fetched_at=datetime.now(UTC),
         raw=payload,

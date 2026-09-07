@@ -12,7 +12,7 @@ Continuously discovers local businesses by **country × city × industry**, audi
 
 Discovery itself uses **Geoapify Places** by default (with OpenStreetMap still available as `discovery.provider: osm`). Swap the provider without touching scoring, audit, contacts, or reports.
 
-Website audits use only the BeaverCheck public API (`POST /api/v2/batch`). The app never submits scans, never calls `/submit`, and never treats a missing public audit as a bad website. Audit payloads are not written to disk.
+Website audits use the BeaverCheck public API (`POST /api/v2/batch`) first. If BeaverCheck has no usable public result, PageSpeed Insights is used as a fallback (`PAGESPEED_API_KEY`). The app never submits BeaverCheck scans, never calls `/submit`, and never invents findings when both providers fail. Audit payloads are not written to disk.
 
 ## Stack
 

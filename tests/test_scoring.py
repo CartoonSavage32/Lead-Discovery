@@ -80,6 +80,7 @@ def test_usable_email_rejects_noreply_and_examples():
     assert not is_usable_email("privacy@example.com")
     assert not is_usable_email("not-an-email")
     assert not is_usable_email(None)
+    assert not is_usable_email("info@aerztekammer-berlin.de")
 
 
 def test_phone_only_cannot_qualify():
@@ -128,6 +129,40 @@ def test_website_contact_email_can_qualify_fix_opportunity():
     assert lead.website_status == "has_website"
     assert lead.qualified is True
     assert lead.outreach_email == "owner@slow.example"
+    assert any(item.code == "performance" for item in lead.reasons)
+
+
+def test_pagespeed_performance_finding_can_qualify():
+    business = _business(
+        website="https://slow.example",
+        domain="slow.example",
+        email="owner@slow.example",
+        phone="+91111",
+    )
+    audit = AuditResult(
+        url="https://slow.example",
+        domain="slow.example",
+        found=True,
+        source="pagespeed",
+        performance=18,
+        mobile_performance=18,
+        lcp_ms=6500,
+        report_url="https://pagespeed.web.dev/report?url=https%3A%2F%2Fslow.example",
+        findings=[
+            Finding(
+                title="Poor PageSpeed performance",
+                severity="critical",
+                category="performance",
+            )
+        ],
+        findings_count={"critical": 1},
+        fetched_at=datetime.now(UTC),
+    )
+    lead = build_lead(business, audit, ScoringConfig(), 52)
+    assert lead.website_status == "has_website"
+    assert lead.qualified is True
+    assert lead.audit is not None
+    assert lead.audit.source == "pagespeed"
     assert any(item.code == "performance" for item in lead.reasons)
 
 
@@ -234,3 +269,19 @@ def test_no_website_custom_domain_email_is_not_clear_opportunity():
     assert lead.qualified is False
     assert lead.qualification != QUALIFIED
     assert any("email domain suggests" in item.message.lower() for item in lead.reasons)
+
+
+def test_association_and_undeliverable_emails_never_become_outreach():
+    association = _business(website=None, email="info@aerztekammer-berlin.de", phone="+49301")
+    missing_mx = _business(
+        website=None,
+        email="owner@thisdomaindoesnotexist12345.com",
+        phone="+49301",
+    )
+    assert build_lead(association, None, ScoringConfig(), 52).outreach_email is None
+    assert build_lead(missing_mx, None, ScoringConfig(), 52).outreach_email is None
+    contacts = [Contact(email="info@vet-association.org")]
+    scraped = _business(website="https://vet.test", domain="vet.test", email=None, phone="+1")
+    lead = build_lead(scraped, None, ScoringConfig(), 52, contacts=contacts)
+    assert lead.outreach_email is None
+

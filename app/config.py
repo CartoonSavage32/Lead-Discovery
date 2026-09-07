@@ -39,6 +39,13 @@ class ScoringConfig(BaseModel):
     no_website: NoWebsiteScoringConfig = Field(default_factory=NoWebsiteScoringConfig)
 
 
+class PageSpeedConfig(BaseModel):
+    api_key: str = ""
+    base_url: str = "https://www.googleapis.com/pagespeedonline/v5/runPagespeed"
+    strategy: str = "mobile"
+    timeout_seconds: float = 60
+
+
 class AuditConfig(BaseModel):
     refresh_interval_hours: int = 168
     rate_limit_per_minute: int = 25
@@ -48,6 +55,7 @@ class AuditConfig(BaseModel):
     max_retries: int = 4
     backoff_seconds: float = 1.0
     backoff_max_seconds: float = 32.0
+    pagespeed: PageSpeedConfig = Field(default_factory=PageSpeedConfig)
 
 
 class GeoapifyConfig(BaseModel):
@@ -169,6 +177,9 @@ def apply_runtime_env(config: AppConfig) -> AppConfig:
     geo_key = os.environ.get("GEOAPIFY_API_KEY") or os.environ.get("GEO_API_KEY")
     if geo_key:
         config.discovery.geoapify.api_key = geo_key
+    psi_key = os.environ.get("PAGESPEED_API_KEY", "")
+    if psi_key:
+        config.audit.pagespeed.api_key = psi_key
     return config
 
 

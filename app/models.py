@@ -94,6 +94,8 @@ class AuditResult(BaseModel):
     findings: list[Finding] = Field(default_factory=list)
     findings_count: dict[str, int] = Field(default_factory=dict)
     beavercheck_url: str | None = None
+    report_url: str | None = None
+    source: str | None = None
     job_id: str | None = None
     fetched_at: datetime | None = None
     raw: dict[str, Any] = Field(default_factory=dict)

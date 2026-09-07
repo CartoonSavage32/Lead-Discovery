@@ -8,6 +8,18 @@ import yaml
 from app.config import AppConfig, load_config
 
 
+@pytest.fixture(autouse=True)
+def stub_mx_lookups(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    if request.node.get_closest_marker("real_dns"):
+        return
+
+    def fake_mx(email: str) -> bool:
+        domain = email.split("@", 1)[-1].lower()
+        return "doesnotexist" not in domain
+
+    monkeypatch.setattr("app.contacts.email.domain_can_receive_mail", fake_mx)
+
+
 @pytest.fixture
 def tmp_data(tmp_path: Path) -> Path:
     (tmp_path / "reports").mkdir()

@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 import httpx
 
 from app.audit.beavercheck import BeaverCheckClient, missing_audit
+from app.audit.pagespeed import PageSpeedClient
 from app.audit.service import AuditService, unique_website_urls
 from app.catalog import load_cities, load_countries, load_industries
 from app.combinations import load_geo, next_combination
@@ -209,7 +210,8 @@ class LeadApp:
                 leads.append(await self._record_lead(record, None, client))
             limiter = RateLimiter(self.config.audit.rate_limit_per_minute)
             beaver = BeaverCheckClient(client, self.config.audit, limiter)
-            audits = AuditService(beaver, self.config.audit)
+            pagespeed = PageSpeedClient(client, self.config.audit)
+            audits = AuditService(beaver, self.config.audit, fallback=pagespeed)
             total_batches = (len(urls) + batch_size - 1) // batch_size if urls else 0
             processed_urls = 0
             by_domain: dict[str, AuditResult] = {}

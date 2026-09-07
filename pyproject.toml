@@ -23,3 +23,6 @@ venv = ".venv"
 asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["."]
+markers = [
+    "real_dns: live DNS MX lookups (not stubbed)",
+]

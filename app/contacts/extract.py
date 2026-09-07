@@ -8,7 +8,7 @@ from urllib.parse import urljoin, urlparse
 from bs4 import BeautifulSoup
 
 from app.config import ContactConfig
-from app.contacts.email import is_usable_email
+from app.contacts.email import is_deliverable_email
 from app.models import Contact
 
 EMAIL_RE = re.compile(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", re.I)
@@ -69,7 +69,7 @@ def _extract_json_ld_contacts(html: str, page_url: str, role_keywords: list[str]
                     Contact(
                         name=str(name),
                         role=job,
-                        email=str(email) if is_usable_email(str(email) if email else None) else None,
+                        email=str(email) if is_deliverable_email(str(email) if email else None) else None,
                         phone=str(telephone) if telephone else None,
                         source_url=page_url,
                         evidence=f"json-ld:{job}",
@@ -86,7 +86,7 @@ def extract_contacts(html: str, page_url: str, config: ContactConfig) -> list[Co
     emails = {
         match.group(0).lower()
         for match in EMAIL_RE.finditer(text)
-        if is_usable_email(match.group(0))
+        if is_deliverable_email(match.group(0))
     }
     phones: set[str] = set()
     for match in PHONE_RE.finditer(text):
@@ -102,7 +102,7 @@ def extract_contacts(html: str, page_url: str, config: ContactConfig) -> list[Co
             mailto.append(href.replace("mailto:", "").split("?")[0])
         elif href.lower().startswith("tel:"):
             tel.append(href.replace("tel:", ""))
-    emails.update(item.lower() for item in mailto if is_usable_email(item))
+    emails.update(item.lower() for item in mailto if is_deliverable_email(item))
     for item in tel:
         cleaned = _clean_phone(item)
         if cleaned:

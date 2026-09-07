@@ -56,16 +56,17 @@ def lead_row(rank: int, lead: Lead) -> dict[str, str]:
         "Review Count": ""
         if lead.business.review_count is None
         else str(lead.business.review_count),
-        "BeaverCheck URL": (lead.audit.beavercheck_url if lead.audit else "") or "",
+        "BeaverCheck URL": (
+            (lead.audit.report_url or lead.audit.beavercheck_url) if lead.audit else ""
+        )
+        or "",
         "Reason": reason,
         "Finding": (finding.title or finding.message or "") if finding else "",
         "Severity": (finding.severity or "") if finding else "",
         "Metric": lead.top_metric or "",
         "Decision Maker": (contact.name if contact else "") or "",
         "Role": (contact.role if contact else "") or "",
-        "Email": lead.outreach_email
-        or (contact.email if contact else lead.business.email)
-        or "",
+        "Email": lead.outreach_email or "",
         "Phone": (contact.phone if contact else lead.business.phone) or "",
         "Google Maps URL": lead.business.google_maps_url,
     }

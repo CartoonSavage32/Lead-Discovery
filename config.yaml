@@ -15,6 +15,9 @@ audit:
   max_retries: 4
   backoff_seconds: 1.0
   backoff_max_seconds: 32.0
+  pagespeed:
+    timeout_seconds: 60
+    strategy: mobile
 
 discovery:
   provider: geoapify
