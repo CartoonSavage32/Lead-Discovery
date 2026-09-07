@@ -47,6 +47,17 @@ class Contact(BaseModel):
     evidence: str | None = None
 
 
+class WebsiteSignals(BaseModel):
+    no_https: bool = False
+    no_viewport: bool = False
+    slow_load: bool = False
+    missing_title_or_description: bool = False
+    fetch_ok: bool = False
+    status_code: int | None = None
+    fetch_seconds: float | None = None
+    final_url: str | None = None
+
+
 class ScoreReason(BaseModel):
     code: str
     message: str

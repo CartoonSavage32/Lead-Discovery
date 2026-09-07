@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Any
 
 import httpx
@@ -13,6 +14,61 @@ from app.urls import domain_from_url, google_maps_search_url, normalize_website
 logger = logging.getLogger(__name__)
 
 MAX_TRANSIENT_ATTEMPTS = 5
+_overpass_last_request_at = 0.0
+
+
+def _body_snippet(response: httpx.Response | None, limit: int = 200) -> str:
+    if response is None:
+        return ""
+    try:
+        text = response.text
+    except Exception:
+        return ""
+    return " ".join(text.split())[:limit]
+
+
+def _log_request_failure(
+    resource: str,
+    combination: Combination,
+    *,
+    url: str,
+    attempt: int,
+    total: int,
+    exc: Exception | None = None,
+    response: httpx.Response | None = None,
+) -> None:
+    status = response.status_code if response is not None else None
+    snippet = _body_snippet(response)
+    exc_type = type(exc).__name__ if exc is not None else None
+    logger.warning(
+        "%s request failed for %s attempt %s/%s url=%s type=%s status=%s body=%r",
+        resource,
+        combination.key,
+        attempt,
+        total,
+        url,
+        exc_type,
+        status,
+        snippet,
+    )
+
+
+def overpass_endpoints(config: DiscoveryConfig) -> list[str]:
+    urls = [item.rstrip("/") for item in config.overpass_urls if item]
+    if not urls and config.overpass_url:
+        urls = [config.overpass_url.rstrip("/")]
+    seen: list[str] = []
+    for url in urls:
+        if url not in seen:
+            seen.append(url)
+    return seen or ["https://overpass-api.de/api/interpreter"]
+
+
+def _request_headers(config: DiscoveryConfig) -> dict[str, str]:
+    return {
+        "User-Agent": config.user_agent,
+        "Accept": "application/json",
+    }
 
 
 def _retry_after_seconds(response: httpx.Response, default: float = 30.0) -> float:
@@ -158,6 +214,17 @@ class OsmDiscovery:
         self.industries = {item.name: item for item in industries}
         self.cities = {(item.country, item.name): item for item in cities}
 
+    async def _respect_overpass_interval(self) -> None:
+        global _overpass_last_request_at
+        interval = max(0.0, self.config.overpass_min_interval_seconds)
+        if interval <= 0:
+            return
+        elapsed = time.monotonic() - _overpass_last_request_at
+        wait = interval - elapsed
+        if wait > 0:
+            await asyncio.sleep(wait)
+        _overpass_last_request_at = time.monotonic()
+
     async def _request(
         self,
         method: str,
@@ -167,69 +234,90 @@ class OsmDiscovery:
         *,
         params: dict[str, Any] | None = None,
         data: dict[str, Any] | None = None,
+        throttle_overpass: bool = False,
     ) -> httpx.Response:
         last_error: Exception | None = None
+        last_response: httpx.Response | None = None
         for attempt in range(MAX_TRANSIENT_ATTEMPTS):
+            if throttle_overpass:
+                await self._respect_overpass_interval()
             try:
                 response = await self.client.request(
                     method,
                     url,
                     params=params,
                     data=data,
-                    headers={"User-Agent": self.config.user_agent},
+                    headers=_request_headers(self.config),
                     timeout=self.config.timeout_seconds,
                 )
             except httpx.RequestError as exc:
                 last_error = exc
+                last_response = getattr(exc, "response", None)
+                _log_request_failure(
+                    resource,
+                    combination,
+                    url=url,
+                    attempt=attempt + 1,
+                    total=MAX_TRANSIENT_ATTEMPTS,
+                    exc=exc,
+                    response=last_response if isinstance(last_response, httpx.Response) else None,
+                )
                 if attempt >= MAX_TRANSIENT_ATTEMPTS - 1:
-                    logger.warning(
-                        "%s network error for %s; giving up after %s attempts",
-                        resource,
-                        combination.key,
-                        MAX_TRANSIENT_ATTEMPTS,
-                    )
                     raise
                 wait = _backoff_seconds(attempt)
                 logger.info(
-                    "%s network error for %s; waiting %ss before retry %s/%s",
+                    "%s retrying %s in %ss after %s",
                     resource,
                     combination.key,
                     int(wait),
-                    attempt + 1,
-                    MAX_TRANSIENT_ATTEMPTS,
+                    type(exc).__name__,
                 )
                 await asyncio.sleep(wait)
                 continue
             if response.status_code == 429 or response.status_code >= 500:
+                last_response = response
+                _log_request_failure(
+                    resource,
+                    combination,
+                    url=url,
+                    attempt=attempt + 1,
+                    total=MAX_TRANSIENT_ATTEMPTS,
+                    response=response,
+                )
                 if attempt >= MAX_TRANSIENT_ATTEMPTS - 1:
-                    logger.warning(
-                        "%s %s for %s; giving up after %s attempts",
-                        resource,
-                        response.status_code,
-                        combination.key,
-                        MAX_TRANSIENT_ATTEMPTS,
-                    )
                     response.raise_for_status()
                 wait = _backoff_seconds(attempt, response)
                 logger.info(
-                    "%s HTTP %s for %s; waiting %ss before retry %s/%s",
+                    "%s retrying %s in %ss after HTTP %s",
                     resource,
-                    response.status_code,
                     combination.key,
                     int(wait),
-                    attempt + 1,
-                    MAX_TRANSIENT_ATTEMPTS,
+                    response.status_code,
                 )
                 await asyncio.sleep(wait)
                 continue
+            if response.status_code >= 400:
+                _log_request_failure(
+                    resource,
+                    combination,
+                    url=url,
+                    attempt=attempt + 1,
+                    total=MAX_TRANSIENT_ATTEMPTS,
+                    response=response,
+                )
             response.raise_for_status()
             return response
         if last_error is not None:
             raise last_error
+        if last_response is not None:
+            last_response.raise_for_status()
         msg = f"{resource} failed for {combination.key} after {MAX_TRANSIENT_ATTEMPTS} attempts"
         raise RuntimeError(msg)
 
     async def _nominatim_area(self, combination: Combination) -> int | None:
+        delay = max(0.0, self.config.nominatim_delay_seconds)
+        if delay:
+            await asyncio.sleep(delay)
         response = await self._request(
             "GET",
             f"{self.config.nominatim_url.rstrip('/')}/search",
@@ -249,6 +337,35 @@ class OsmDiscovery:
         osm_type = str(first.get("osm_type", "relation"))
         return _area_id(osm_id, osm_type)
 
+    async def _overpass(self, combination: Combination, query: str) -> httpx.Response:
+        endpoints = overpass_endpoints(self.config)
+        last_error: Exception | None = None
+        for index, url in enumerate(endpoints):
+            try:
+                return await self._request(
+                    "POST",
+                    url,
+                    combination,
+                    "Overpass",
+                    data={"data": query},
+                    throttle_overpass=True,
+                )
+            except (httpx.HTTPError, RuntimeError) as exc:
+                last_error = exc
+                remaining = endpoints[index + 1 :]
+                if not remaining:
+                    break
+                logger.warning(
+                    "Overpass endpoint %s exhausted for %s; trying fallback %s",
+                    url,
+                    combination.key,
+                    remaining[0],
+                )
+        if last_error is not None:
+            raise last_error
+        msg = f"Overpass failed for {combination.key}"
+        raise RuntimeError(msg)
+
     async def discover(self, combination: Combination) -> list[BusinessRecord]:
         industry = self.industries.get(combination.industry)
         city = self.cities.get((combination.country, combination.city))
@@ -260,13 +377,7 @@ class OsmDiscovery:
         query = _overpass_query(area_id, industry, self.config.max_results_per_combination)
         if not query:
             return []
-        response = await self._request(
-            "POST",
-            self.config.overpass_url,
-            combination,
-            "Overpass",
-            data={"data": query},
-        )
+        response = await self._overpass(combination, query)
         payload = response.json()
         elements = payload.get("elements") or []
         return records_from_overpass(elements, combination, industry, city)

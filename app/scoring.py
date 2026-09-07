@@ -4,11 +4,15 @@ from datetime import UTC, datetime
 
 from app.config import ScoringConfig
 from app.contacts.email import first_usable_email
-from app.models import AuditResult, BusinessRecord, Contact, Finding, Lead, ScoreReason
+from app.contacts.signals import SLOW_LOAD_SECONDS, check_basic_website_signals
+from app.models import AuditResult, BusinessRecord, Contact, Finding, Lead, ScoreReason, WebsiteSignals
 
 QUALIFIED = "qualified"
 REVIEW = "review"
 REJECT = "reject"
+
+UNINDEXED_SIGNAL_POINTS = 10.0
+UNINDEXED_OPPORTUNITY_CAP = 40.0
 
 
 def _clamp(value: float) -> float:
@@ -23,13 +27,13 @@ def _severity_rank(severity: str | None) -> int:
 
 
 def is_strong_business(business: BusinessRecord) -> bool:
+    """Real, active, contactable local business — not dependent on OSM review data."""
     if not business.commercial:
         return False
-    if business.rating is None or business.rating < 4.0:
+    if business.location_weight < 0.35:
         return False
-    if business.review_count is None or business.review_count < 25:
-        return False
-    return business.location_weight >= 0.35
+    has_contact_signal = bool(business.phone) or bool(business.email) or bool(business.website)
+    return has_contact_signal
 
 
 def collect_outreach_email(business: BusinessRecord, contacts: list[Contact]) -> str | None:
@@ -46,14 +50,14 @@ def score_business_quality(
 
     rating_points = 0.0
     if business.rating is not None:
-        rating_points = _clamp((business.rating / max(weights.rating_full_at, 0.1)) * 15)
+        rating_points = _clamp((business.rating / max(weights.rating_full_at, 0.1)) * 5)
     reasons.append(
         ScoreReason(
             code="rating",
             message=(
                 f"Rated {business.rating:.1f}"
                 if business.rating is not None
-                else "No public rating"
+                else "No public rating (bonus unused)"
             ),
             points=rating_points,
             metric=f"rating={business.rating}",
@@ -63,14 +67,14 @@ def score_business_quality(
 
     review_points = 0.0
     if business.review_count is not None and weights.reviews_full_at:
-        review_points = _clamp((business.review_count / weights.reviews_full_at) * 10)
+        review_points = _clamp((business.review_count / weights.reviews_full_at) * 5)
     reasons.append(
         ScoreReason(
             code="reviews",
             message=(
                 f"{business.review_count} reviews"
                 if business.review_count is not None
-                else "No public review count"
+                else "No public review count (bonus unused)"
             ),
             points=review_points,
             metric=f"reviews={business.review_count}",
@@ -85,6 +89,17 @@ def score_business_quality(
             message="Commercial category" if business.commercial else "Non-commercial category",
             points=category_points,
             metric=business.category or business.industry,
+            severity="info",
+        )
+    )
+
+    industry_points = 10.0 if business.industry else 0.0
+    reasons.append(
+        ScoreReason(
+            code="industry",
+            message=f"Target industry {business.industry}" if business.industry else "No industry",
+            points=industry_points,
+            metric=business.industry,
             severity="info",
         )
     )
@@ -133,19 +148,93 @@ def _opportunity_from_score(category_score: float | None, poor_below: float) -> 
     return _clamp((poor_below - min(category_score, poor_below)) / span * 100)
 
 
+def score_unindexed_website_opportunity(
+    signals: WebsiteSignals | None,
+) -> tuple[float, list[ScoreReason], bool]:
+    reasons: list[ScoreReason] = [
+        ScoreReason(
+            code="no_public_audit",
+            message="No public BeaverCheck audit; using homepage signals",
+            points=0.0,
+            metric=None,
+            severity="info",
+        )
+    ]
+    if signals is None or not signals.fetch_ok:
+        reasons.append(
+            ScoreReason(
+                code="unindexed_fetch",
+                message="Homepage could not be fetched for basic website signals",
+                points=0.0,
+                metric=None,
+                severity="info",
+            )
+        )
+        return 0.0, reasons, False
+
+    hits = 0
+    if signals.no_https:
+        hits += 1
+        reasons.append(
+            ScoreReason(
+                code="no_https",
+                message="Site is not served over HTTPS",
+                points=UNINDEXED_SIGNAL_POINTS,
+                metric="http",
+                severity="warning",
+            )
+        )
+    if signals.no_viewport:
+        hits += 1
+        reasons.append(
+            ScoreReason(
+                code="no_viewport",
+                message="Missing viewport meta tag (not mobile-optimized)",
+                points=UNINDEXED_SIGNAL_POINTS,
+                metric="viewport",
+                severity="warning",
+            )
+        )
+    if signals.slow_load:
+        hits += 1
+        reasons.append(
+            ScoreReason(
+                code="slow_load",
+                message=f"Homepage fetch slower than {SLOW_LOAD_SECONDS:.0f}s",
+                points=UNINDEXED_SIGNAL_POINTS,
+                metric=f"fetch_seconds={signals.fetch_seconds}",
+                severity="warning",
+            )
+        )
+    if signals.missing_title_or_description:
+        hits += 1
+        reasons.append(
+            ScoreReason(
+                code="missing_seo_tags",
+                message="Missing title tag or meta description",
+                points=UNINDEXED_SIGNAL_POINTS,
+                metric="title/description",
+                severity="warning",
+            )
+        )
+    total = _clamp(min(UNINDEXED_OPPORTUNITY_CAP, hits * UNINDEXED_SIGNAL_POINTS))
+    return total, reasons, hits >= 2
+
+
 def score_website_opportunity(
     audit: AuditResult,
     config: ScoringConfig,
 ) -> tuple[float, list[ScoreReason], Finding | None, bool]:
     if not audit.found:
-        reason = ScoreReason(
-            code="no_public_audit",
-            message="No public BeaverCheck audit",
-            points=0.0,
-            metric=None,
-            severity="info",
-        )
-        return 0.0, [reason], None, False
+        return 0.0, [
+            ScoreReason(
+                code="no_public_audit",
+                message="No public BeaverCheck audit",
+                points=0.0,
+                metric=None,
+                severity="info",
+            )
+        ], None, False
 
     weights = config.website
     reasons: list[ScoreReason] = []
@@ -305,6 +394,38 @@ def score_website_opportunity(
     return total, reasons, top_finding, clear
 
 
+_CONSUMER_MAIL_DOMAINS = {
+    "gmail.com",
+    "googlemail.com",
+    "hotmail.com",
+    "hotmail.co.uk",
+    "outlook.com",
+    "live.com",
+    "msn.com",
+    "yahoo.com",
+    "yahoo.co.uk",
+    "ymail.com",
+    "icloud.com",
+    "me.com",
+    "aol.com",
+    "proton.me",
+    "protonmail.com",
+    "gmx.com",
+    "gmx.de",
+    "mail.com",
+}
+
+
+def email_implies_existing_website(email: str | None) -> bool:
+    """A custom-domain inbox usually means the business already has a site OSM omitted."""
+    if not email or "@" not in email:
+        return False
+    domain = email.rsplit("@", 1)[-1].strip().lower()
+    if not domain or "." not in domain:
+        return False
+    return domain not in _CONSUMER_MAIL_DOMAINS
+
+
 def score_no_website_opportunity(
     business: BusinessRecord,
     strong: bool,
@@ -316,6 +437,16 @@ def score_no_website_opportunity(
                 message="No website, but the business is not strong enough to pitch",
                 points=0.0,
                 metric=None,
+                severity="info",
+            )
+        ], False
+    if email_implies_existing_website(business.email):
+        return 0.0, [
+            ScoreReason(
+                code="no_website",
+                message="OSM has no website tag, but the email domain suggests a site already exists",
+                points=0.0,
+                metric=business.email,
                 severity="info",
             )
         ], False
@@ -337,7 +468,12 @@ def score_no_website_opportunity(
 
 
 def concise_reason(reasons: list[ScoreReason], qualification: str, email: str | None) -> str:
-    useful = [item.message for item in reasons if item.points > 0 or item.code in {"email", "no_public_audit", "no_website", "healthy_site"}]
+    useful = [
+        item.message
+        for item in reasons
+        if item.points > 0
+        or item.code in {"email", "no_public_audit", "no_website", "healthy_site"}
+    ]
     if qualification == QUALIFIED:
         prefix = "Qualified: "
     elif qualification == REVIEW:
@@ -367,7 +503,7 @@ def classify_lead(
         and strong
         and clear_opportunity
         and score >= minimum_score
-        and website_status in {"has_website", "no_website"}
+        and website_status in {"has_website", "no_website", "no_public_audit"}
     ):
         return QUALIFIED
     if score >= 40 and (email or strong):
@@ -381,6 +517,7 @@ def build_lead(
     config: ScoringConfig,
     minimum_score: float,
     contacts: list[Contact] | None = None,
+    website_signals: WebsiteSignals | None = None,
 ) -> Lead:
     contacts = contacts or []
     email = collect_outreach_email(business, contacts)
@@ -394,27 +531,15 @@ def build_lead(
         finding = None
         metric = next((item.metric for item in opp_reasons if item.metric), None)
         used_audit = None
-    elif audit is None or not audit.found:
-        website_status = "no_public_audit"
-        opportunity, opp_reasons, finding, clear = 0.0, [], None, False
-        if audit is not None:
-            opportunity, opp_reasons, finding, clear = score_website_opportunity(audit, config)
-        else:
-            opp_reasons = [
-                ScoreReason(
-                    code="no_public_audit",
-                    message="No public BeaverCheck audit",
-                    points=0.0,
-                    metric=None,
-                    severity="info",
-                )
-            ]
-        metric = None
-        used_audit = audit
-        clear = False
-    else:
+    elif audit is not None and audit.found:
         website_status = "has_website"
         opportunity, opp_reasons, finding, clear = score_website_opportunity(audit, config)
+        metric = next((item.metric for item in opp_reasons if item.metric), None)
+        used_audit = audit
+    else:
+        website_status = "no_public_audit"
+        opportunity, opp_reasons, clear = score_unindexed_website_opportunity(website_signals)
+        finding = None
         metric = next((item.metric for item in opp_reasons if item.metric), None)
         used_audit = audit
 

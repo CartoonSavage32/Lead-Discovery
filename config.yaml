@@ -1,5 +1,5 @@
 timezone: Asia/Kolkata
-minimum_score: 55
+minimum_score: 52
 data_dir: data
 loop_delay_seconds: 5
 countries_file: data/countries.yaml
@@ -22,8 +22,12 @@ discovery:
   timeout_seconds: 90
   nominatim_url: https://nominatim.openstreetmap.org
   overpass_url: https://overpass-api.de/api/interpreter
+  overpass_urls:
+    - https://overpass-api.de/api/interpreter
+    - https://overpass.kumi.systems/api/interpreter
   user_agent: "WebsiteLeads/1.0 (lead research; contact@localhost)"
   nominatim_delay_seconds: 1.1
+  overpass_min_interval_seconds: 1.75
 
 scoring:
   website:

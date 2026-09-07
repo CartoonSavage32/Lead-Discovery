@@ -41,17 +41,23 @@ def unescape_email(value: str) -> str:
 
 
 def is_usable_email(value: str | None) -> bool:
+    return usable_email_rejection_reason(value) is None
+
+
+def usable_email_rejection_reason(value: str | None) -> str | None:
     email = normalize_email(value)
-    if not email or not EMAIL_RE.match(email):
-        return False
+    if not email:
+        return "empty"
+    if not EMAIL_RE.match(email):
+        return "invalid_format"
     local, _, domain = email.partition("@")
     if not local or not domain or "." not in domain:
-        return False
+        return "invalid_format"
     if local in _JUNK_LOCAL_PARTS:
-        return False
+        return f"junk_local:{local}"
     if domain in _JUNK_DOMAINS:
-        return False
-    return True
+        return f"junk_domain:{domain}"
+    return None
 
 
 def first_usable_email(*values: str | None) -> str | None:

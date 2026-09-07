@@ -146,7 +146,11 @@ async def test_overpass_429_retries_same_combination(monkeypatch: pytest.MonkeyP
     async with httpx.AsyncClient(transport=transport) as client:
         provider = OsmDiscovery(
             client,
-            DiscoveryConfig(overpass_url="https://overpass.example/api"),
+            DiscoveryConfig(
+                overpass_url="https://overpass.example/api",
+                nominatim_delay_seconds=0,
+                overpass_min_interval_seconds=0,
+            ),
             [industry],
             [city],
         )
@@ -192,7 +196,11 @@ async def test_overpass_504_retries_same_combination(monkeypatch: pytest.MonkeyP
     async with httpx.AsyncClient(transport=transport) as client:
         provider = OsmDiscovery(
             client,
-            DiscoveryConfig(overpass_url="https://overpass.example/api"),
+            DiscoveryConfig(
+                overpass_url="https://overpass.example/api",
+                nominatim_delay_seconds=0,
+                overpass_min_interval_seconds=0,
+            ),
             [industry],
             [city],
         )
@@ -231,7 +239,11 @@ async def test_overpass_gives_up_after_five_transient_attempts(
     async with httpx.AsyncClient(transport=transport) as client:
         provider = OsmDiscovery(
             client,
-            DiscoveryConfig(overpass_url="https://overpass.example/api"),
+            DiscoveryConfig(
+                overpass_url="https://overpass.example/api",
+                nominatim_delay_seconds=0,
+                overpass_min_interval_seconds=0,
+            ),
             [industry],
             [city],
         )
@@ -269,7 +281,11 @@ async def test_overpass_network_errors_cannot_retry_forever(monkeypatch: pytest.
     async with httpx.AsyncClient(transport=transport) as client:
         provider = OsmDiscovery(
             client,
-            DiscoveryConfig(overpass_url="https://overpass.example/api"),
+            DiscoveryConfig(
+                overpass_url="https://overpass.example/api",
+                nominatim_delay_seconds=0,
+                overpass_min_interval_seconds=0,
+            ),
             [industry],
             [city],
         )
@@ -306,7 +322,11 @@ async def test_overpass_502_cannot_retry_forever(monkeypatch: pytest.MonkeyPatch
     async with httpx.AsyncClient(transport=transport) as client:
         provider = OsmDiscovery(
             client,
-            DiscoveryConfig(overpass_url="https://overpass.example/api"),
+            DiscoveryConfig(
+                overpass_url="https://overpass.example/api",
+                nominatim_delay_seconds=0,
+                overpass_min_interval_seconds=0,
+            ),
             [industry],
             [city],
         )
@@ -316,6 +336,61 @@ async def test_overpass_502_cannot_retry_forever(monkeypatch: pytest.MonkeyPatch
     assert posts["n"] == MAX_TRANSIENT_ATTEMPTS
     assert len(sleeps) == MAX_TRANSIENT_ATTEMPTS - 1
     assert all(item <= 60.0 for item in sleeps)
+
+
+@pytest.mark.asyncio
+async def test_overpass_falls_back_to_secondary_endpoint(monkeypatch: pytest.MonkeyPatch):
+    sleeps: list[float] = []
+
+    async def fake_sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    monkeypatch.setattr("app.discovery.osm.asyncio.sleep", fake_sleep)
+    hosts: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "nominatim" in str(request.url):
+            return httpx.Response(
+                200,
+                json=[{"osm_id": 123, "osm_type": "relation"}],
+            )
+        hosts.append(request.url.host or "")
+        if "overpass.example" in str(request.url):
+            return httpx.Response(504, text="gateway timeout from primary")
+        return httpx.Response(
+            200,
+            json={
+                "elements": [
+                    {"id": 9, "type": "node", "tags": {"name": "Cafe Crust", "website": "crust.test"}}
+                ]
+            },
+        )
+
+    combination = Combination(country="India", city="Mumbai", industry="bakery")
+    industry = Industry(name="bakery", osm_tags=[OsmTag(key="shop", value="bakery")])
+    city = City(name="Mumbai", country="India", location_weight=0.9)
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as client:
+        provider = OsmDiscovery(
+            client,
+            DiscoveryConfig(
+                overpass_url="https://overpass.example/api",
+                overpass_urls=[
+                    "https://overpass.example/api",
+                    "https://overpass.fallback.test/api",
+                ],
+                nominatim_delay_seconds=0,
+                overpass_min_interval_seconds=0,
+                user_agent="WebsiteLeads/1.0 (lead research; contact@localhost)",
+            ),
+            [industry],
+            [city],
+        )
+        records = await provider.discover(combination)
+    assert "overpass.example" in hosts
+    assert "overpass.fallback.test" in hosts
+    assert len(records) == 1
+    assert records[0].name == "Cafe Crust"
 
 
 @pytest.mark.asyncio

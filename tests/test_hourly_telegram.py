@@ -184,7 +184,7 @@ async def test_hourly_queue_only_qualified_and_dedupes(app_config):
         website=None,
         rating=4.8,
         review_count=120,
-        email="hello@strong.test",
+        email="hello@gmail.com",
     )
     async with app._client() as client:
         await app._record_lead(weak, None, client)

@@ -56,9 +56,11 @@ class DiscoveryConfig(BaseModel):
     timeout_seconds: float = 90
     nominatim_url: str = "https://nominatim.openstreetmap.org"
     overpass_url: str = "https://overpass-api.de/api/interpreter"
-    user_agent: str = "WebsiteLeads/1.0 (lead research; https://example.local)"
+    overpass_urls: list[str] = Field(default_factory=list)
+    user_agent: str = "WebsiteLeads/1.0 (lead research; contact@localhost)"
     file_path: str | None = None
     nominatim_delay_seconds: float = 1.1
+    overpass_min_interval_seconds: float = 1.75
 
 
 class ContactConfig(BaseModel):
@@ -103,7 +105,7 @@ class TelegramConfig(BaseModel):
 class AppConfig(BaseModel):
     timezone: str = "Asia/Kolkata"
     report_time: str = "20:30"
-    minimum_score: float = 55
+    minimum_score: float = 52
     data_dir: Path = Path("data")
     loop_delay_seconds: float = 5
     countries_file: str = "data/countries.yaml"

@@ -23,6 +23,7 @@ from app.models import (
     BusinessRecord,
     Combination,
     CombinationState,
+    Contact,
     DomainState,
     Lead,
     ReportHistoryEntry,
@@ -136,10 +137,11 @@ class LeadApp:
                 domain.last_audit_at = audit.fetched_at
                 domain.last_score = audit.score
                 self.store.state.domains[record.domain] = domain
-        contacts = []
+        contacts: list[Contact] = []
+        website_signals = None
         if record.website:
             try:
-                contacts = await discover_contacts(
+                contacts, website_signals = await discover_contacts(
                     client,
                     record.website,
                     self.config.contacts,
@@ -147,12 +149,14 @@ class LeadApp:
             except Exception:
                 logger.exception("Contact discovery failed for %s; continuing", record.website)
                 contacts = []
+                website_signals = None
         lead = build_lead(
             record,
             audit,
             self.config.scoring,
             self.config.minimum_score,
             contacts=contacts,
+            website_signals=website_signals,
         )
         key = business_key(
             lead.business.domain,
