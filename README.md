@@ -1,4 +1,4 @@
-# Website Leads
+# Website Leads Discovery
 
 Continuously discovers local businesses by **country × city × industry**, audits public websites with the BeaverCheck API, scores website-build and website-fix opportunities, and emails a daily CSV to Telegram.
 
