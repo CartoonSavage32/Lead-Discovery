@@ -242,19 +242,47 @@ def _audit(url: str, *, found: bool, **kwargs: object) -> AuditResult:
     return AuditResult.model_validate(payload)
 
 
-def _psi_payload(*, performance: float, lcp_ms: float = 1200) -> dict:
+def _psi_payload(
+    *,
+    performance: float,
+    lcp_ms: float = 1200,
+    audits: dict | None = None,
+    audit_refs: list[dict] | None = None,
+) -> dict:
+    lighthouse_audits = {
+        "largest-contentful-paint": {"numericValue": lcp_ms, "score": 0.2 if lcp_ms >= 4000 else 1},
+        "cumulative-layout-shift": {"numericValue": 0.05, "score": 1},
+        "total-blocking-time": {"numericValue": 120, "score": 1},
+    }
+    if audits:
+        lighthouse_audits.update(audits)
+    refs = audit_refs
+    if refs is None:
+        refs = [
+            {"id": audit_id, "weight": 0, "group": "diagnostics"}
+            for audit_id in lighthouse_audits
+            if audit_id
+            not in {
+                "largest-contentful-paint",
+                "cumulative-layout-shift",
+                "total-blocking-time",
+            }
+        ]
+        refs.extend(
+            [
+                {"id": "largest-contentful-paint", "weight": 25, "group": "metrics"},
+                {"id": "cumulative-layout-shift", "weight": 25, "group": "metrics"},
+                {"id": "total-blocking-time", "weight": 30, "group": "metrics"},
+            ]
+        )
     return {
         "lighthouseResult": {
             "categories": {
-                "performance": {"score": performance / 100},
+                "performance": {"score": performance / 100, "auditRefs": refs},
                 "seo": {"score": 0.8},
                 "accessibility": {"score": 0.7},
             },
-            "audits": {
-                "largest-contentful-paint": {"numericValue": lcp_ms},
-                "cumulative-layout-shift": {"numericValue": 0.05},
-                "total-blocking-time": {"numericValue": 120},
-            },
+            "audits": lighthouse_audits,
         }
     }
 
@@ -283,7 +311,7 @@ async def test_beavercheck_miss_uses_pagespeed_fallback():
                 source="pagespeed",
                 performance=22,
                 report_url="https://pagespeed.web.dev/report?url=https%3A%2F%2Fnone.test",
-                findings=[{"title": "Poor PageSpeed performance", "severity": "critical", "category": "performance"}],
+                findings=[{"title": "Images are slowing page load", "severity": "warning", "category": "performance", "metric": "Largest Contentful Paint = 5.8s"}],
             )
         }
     )
@@ -328,16 +356,49 @@ async def test_both_providers_fail_returns_unaudited():
 def test_pagespeed_finding_from_poor_performance():
     from app.audit.pagespeed import parse_pagespeed_payload
 
-    result = parse_pagespeed_payload("https://slow.test", _psi_payload(performance=18, lcp_ms=6500))
+    result = parse_pagespeed_payload(
+        "https://slow.test",
+        _psi_payload(
+            performance=18,
+            lcp_ms=5800,
+            audits={
+                "uses-optimized-images": {
+                    "title": "Efficiently encode images",
+                    "score": 0,
+                    "scoreDisplayMode": "metricSavings",
+                    "displayValue": "Est savings of 1,200 KiB",
+                    "metricSavings": {"LCP": 800},
+                    "details": {"overallSavingsMs": 1200},
+                },
+                "unused-javascript": {
+                    "title": "Reduce unused JavaScript",
+                    "score": 0,
+                    "scoreDisplayMode": "metricSavings",
+                    "details": {"overallSavingsMs": 400},
+                },
+                "full-page-screenshot": {"score": 1, "scoreDisplayMode": "informative"},
+            },
+        ),
+    )
     assert result.found is True
     assert result.source == "pagespeed"
     assert result.performance == 18
-    assert result.mobile_performance == 18
-    assert result.lcp_ms == 6500
     assert result.report_url
-    titles = {item.title for item in result.findings}
-    assert "Poor PageSpeed performance" in titles
-    assert "Slow Largest Contentful Paint" in titles
+    titles = [item.title for item in result.findings]
+    assert "Images are slowing page load" in titles
+    assert "Unused JavaScript is slowing page load" in titles
+    assert "Poor PageSpeed performance" not in titles
+    assert len(result.findings) <= 3
+    image = next(item for item in result.findings if item.title == "Images are slowing page load")
+    assert image.metric == "Largest Contentful Paint = 5.8s"
+
+
+def test_pagespeed_poor_score_without_actionable_audits_is_unaudited():
+    from app.audit.pagespeed import parse_pagespeed_payload
+
+    result = parse_pagespeed_payload("https://empty.test", _psi_payload(performance=18, lcp_ms=1200))
+    assert result.found is False
+    assert result.findings == []
 
 
 def test_pagespeed_healthy_result_does_not_invent_findings():

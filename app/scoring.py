@@ -534,7 +534,10 @@ def build_lead(
     elif audit is not None and audit.found:
         website_status = "has_website"
         opportunity, opp_reasons, finding, clear = score_website_opportunity(audit, config)
-        metric = next((item.metric for item in opp_reasons if item.metric), None)
+        metric = (finding.metric if finding and finding.metric else None) or next(
+            (item.metric for item in opp_reasons if item.metric),
+            None,
+        )
         used_audit = audit
     else:
         website_status = "no_public_audit"

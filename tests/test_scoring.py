@@ -150,9 +150,10 @@ def test_pagespeed_performance_finding_can_qualify():
         report_url="https://pagespeed.web.dev/report?url=https%3A%2F%2Fslow.example",
         findings=[
             Finding(
-                title="Poor PageSpeed performance",
-                severity="critical",
+                title="Images are slowing page load",
+                severity="warning",
                 category="performance",
+                metric="Largest Contentful Paint = 5.8s",
             )
         ],
         findings_count={"critical": 1},
@@ -163,6 +164,9 @@ def test_pagespeed_performance_finding_can_qualify():
     assert lead.qualified is True
     assert lead.audit is not None
     assert lead.audit.source == "pagespeed"
+    assert lead.top_finding is not None
+    assert lead.top_finding.title == "Images are slowing page load"
+    assert lead.top_metric == "Largest Contentful Paint = 5.8s"
     assert any(item.code == "performance" for item in lead.reasons)
 
 

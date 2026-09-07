@@ -72,6 +72,7 @@ class Finding(BaseModel):
     message: str | None = None
     severity: str | None = None
     category: str | None = None
+    metric: str | None = None
 
 
 class AuditResult(BaseModel):

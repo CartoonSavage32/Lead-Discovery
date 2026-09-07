@@ -63,7 +63,7 @@ def lead_row(rank: int, lead: Lead) -> dict[str, str]:
         "Reason": reason,
         "Finding": (finding.title or finding.message or "") if finding else "",
         "Severity": (finding.severity or "") if finding else "",
-        "Metric": lead.top_metric or "",
+        "Metric": lead.top_metric or ((finding.metric if finding else None) or ""),
         "Decision Maker": (contact.name if contact else "") or "",
         "Role": (contact.role if contact else "") or "",
         "Email": lead.outreach_email or "",
