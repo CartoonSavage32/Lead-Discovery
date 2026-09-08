@@ -172,3 +172,5 @@ class AppState(BaseModel):
     leads: dict[str, Lead] = Field(default_factory=dict)
     report_history: list[ReportHistoryEntry] = Field(default_factory=list)
     last_daily_report_date: str | None = None
+    daily_combinations_processed: int = 0
+    daily_counter_date: str = ""

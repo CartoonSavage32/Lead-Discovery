@@ -104,3 +104,52 @@
     - {key: shop, value: florist}
   geoapify_categories:
     - commercial.florist
+- name: interior designer
+  commercial: true
+  osm_tags:
+    - {key: office, value: interior_design}
+  geoapify_categories:
+    - commercial.furniture_and_interior
+
+- name: photographer
+  commercial: true
+  osm_tags:
+    - {key: craft, value: photographer}
+  geoapify_categories:
+    - service.photographer
+
+- name: consulting
+  commercial: true
+  osm_tags:
+    - {key: office, value: consulting}
+  geoapify_categories:
+    - office.consulting
+
+- name: architect
+  commercial: true
+  osm_tags:
+    - {key: office, value: architect}
+  geoapify_categories:
+    - office.architect
+
+- name: spa
+  commercial: true
+  osm_tags:
+    - {key: leisure, value: spa}
+  geoapify_categories:
+    - service.beauty.spa
+    - leisure.spa
+
+- name: insurance agent
+  commercial: true
+  osm_tags:
+    - {key: office, value: insurance}
+  geoapify_categories:
+    - office.insurance
+
+- name: software
+  commercial: true
+  osm_tags:
+    - {key: office, value: it}
+  geoapify_categories:
+    - office.it

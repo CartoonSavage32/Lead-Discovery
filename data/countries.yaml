@@ -1,13 +1,9 @@
-- name: India
-  code: "IN"
 - name: United States
   code: "US"
 - name: United Kingdom
   code: "GB"
 - name: Germany
   code: "DE"
-- name: Japan
-  code: "JP"
 - name: Brazil
   code: "BR"
 - name: United Arab Emirates

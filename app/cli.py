@@ -43,7 +43,7 @@ async def cmd_run(app: LeadApp) -> int:
 async def cmd_discover(app: LeadApp) -> int:
     combination, records = await app.discover_next()
     if combination is None:
-        print("No unprocessed combinations remain.")
+        print("No combinations available right now (daily cap or recheck window).")
         return 0
     print(f"Discovered {len(records)} businesses for {combination.key}")
     return 0

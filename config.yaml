@@ -31,6 +31,8 @@ discovery:
   user_agent: "WebsiteLeads/1.0 (lead research; contact@localhost)"
   nominatim_delay_seconds: 1.1
   overpass_min_interval_seconds: 1.75
+  recheck_after_days: 21
+  max_combinations_per_day: 30
   geoapify:
     requests_per_second: 5
     radius_meters: 15000

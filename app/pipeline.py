@@ -15,7 +15,7 @@ from app.audit.beavercheck import BeaverCheckClient, missing_audit
 from app.audit.pagespeed import PageSpeedClient
 from app.audit.service import AuditService, unique_website_urls
 from app.catalog import load_cities, load_countries, load_industries
-from app.combinations import load_geo, next_combination
+from app.combinations import earliest_recheck_at, load_geo, next_combination, next_recheck_combination
 from app.config import AppConfig
 from app.contacts.discover import discover_contacts
 from app.discovery.factory import build_discovery
@@ -64,6 +64,8 @@ class LeadApp:
         self._last_hourly_report_monotonic: float | None = None
         self._deferred_until: dict[str, float] = {}
         self._defer_cooldown_seconds = 300.0
+        self._idle_logged = False
+        self._idle_sleep_seconds = 600.0
         self._discovery_paused_until = 0.0
         self._quota_message_logged = False
 
@@ -88,6 +90,8 @@ class LeadApp:
 
     def _mark_complete(self, combination: Combination, business_count: int) -> None:
         previous_in_progress = self.store.state.in_progress_combination
+        previous_daily = self.store.state.daily_combinations_processed
+        previous_daily_date = self.store.state.daily_counter_date
         self.store.state.processed_combinations[combination.key] = CombinationState(
             key=combination.key,
             country=combination.country,
@@ -96,12 +100,15 @@ class LeadApp:
             completed_at=utcnow(),
             business_count=business_count,
         )
+        self._record_daily_combination()
         self.store.state.in_progress_combination = None
         try:
             self.store.persist()
         except OSError:
             self.store.state.processed_combinations.pop(combination.key, None)
             self.store.state.in_progress_combination = previous_in_progress
+            self.store.state.daily_combinations_processed = previous_daily
+            self.store.state.daily_counter_date = previous_daily_date
             raise
 
     def _begin_combination(self, combination: Combination) -> None:
@@ -123,6 +130,11 @@ class LeadApp:
             "Deferring %s after discovery failure; will retry later",
             combination.key,
         )
+        self._record_daily_combination()
+        try:
+            self.store.persist()
+        except OSError:
+            logger.exception("Could not persist daily combination counter after defer")
 
     def _discovery_paused(self) -> bool:
         if self._discovery_paused_until <= 0:
@@ -142,6 +154,11 @@ class LeadApp:
         if not self._quota_message_logged:
             logger.warning("Geoapify daily quota exhausted, pausing discovery until reset")
             self._quota_message_logged = True
+        self._record_daily_combination()
+        try:
+            self.store.persist()
+        except OSError:
+            logger.exception("Could not persist daily combination counter after quota pause")
 
     async def discover_combination(self, combination: Combination) -> list[BusinessRecord]:
         async with self._client() as client:
@@ -313,24 +330,56 @@ class LeadApp:
                 return item
         return None
 
+    def _reset_daily_counter_if_new_day(self) -> None:
+        today = utcnow().date().isoformat()
+        if self.store.state.daily_counter_date == today:
+            return
+        self.store.state.daily_counter_date = today
+        self.store.state.daily_combinations_processed = 0
+
+    def _record_daily_combination(self) -> None:
+        self._reset_daily_counter_if_new_day()
+        self.store.state.daily_combinations_processed += 1
+
+    def _daily_cap_reached(self) -> bool:
+        self._reset_daily_counter_if_new_day()
+        cap = max(0, int(self.config.discovery.max_combinations_per_day))
+        return self.store.state.daily_combinations_processed >= cap
+
+    def _earliest_recheck_time(self) -> datetime | None:
+        return earliest_recheck_at(
+            self.store.state.processed_combinations,
+            recheck_after_days=self.config.discovery.recheck_after_days,
+        )
+
     def _next_combination(self) -> Combination | None:
+        self._reset_daily_counter_if_new_day()
         deferred = self._active_deferred_keys()
         in_progress = self.store.state.in_progress_combination
-        if (
-            in_progress
-            and in_progress not in self.store.state.processed_combinations
-            and in_progress not in deferred
-        ):
+        if in_progress and in_progress not in deferred:
             current = self._combination_by_key(in_progress)
             if current is not None:
                 return current
-        processed = set(self.store.state.processed_combinations) | deferred
-        return next_combination(self.combinations, processed, self.rng)
+        if self._daily_cap_reached():
+            return None
+        unprocessed = next_combination(
+            self.combinations,
+            set(self.store.state.processed_combinations) | deferred,
+            self.rng,
+        )
+        if unprocessed is not None:
+            return unprocessed
+        return next_recheck_combination(
+            self.combinations,
+            self.store.state.processed_combinations,
+            now=utcnow(),
+            recheck_after_days=self.config.discovery.recheck_after_days,
+            deferred_keys=deferred,
+        )
 
     async def discover_next(self) -> tuple[Combination | None, list[BusinessRecord]]:
         combination = self._next_combination()
         if combination is None:
-            logger.info("No unprocessed country/city/industry combinations remain")
             return None, []
         if self._discovery_paused():
             return None, []
@@ -460,8 +509,27 @@ class LeadApp:
                     continue
                 if combination is None:
                     await self.maybe_report()
-                    await asyncio.sleep(max(self.config.loop_delay_seconds, 15))
+                    if self._discovery_paused():
+                        await asyncio.sleep(self.config.loop_delay_seconds)
+                        continue
+                    if not self._idle_logged:
+                        if self._daily_cap_reached():
+                            logger.info(
+                                "Daily pacing cap reached (%s combinations processed today); "
+                                "resuming after UTC midnight.",
+                                self.store.state.daily_combinations_processed,
+                            )
+                        else:
+                            next_eligible_at = self._earliest_recheck_time()
+                            logger.info(
+                                "No combinations available right now; next recheck-eligible "
+                                "combination unlocks at %s. Sleeping.",
+                                next_eligible_at,
+                            )
+                        self._idle_logged = True
+                    await asyncio.sleep(self._idle_sleep_seconds)
                     continue
+                self._idle_logged = False
                 await asyncio.sleep(self.config.loop_delay_seconds)
         finally:
             hourly.cancel()

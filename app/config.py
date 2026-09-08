@@ -77,6 +77,8 @@ class DiscoveryConfig(BaseModel):
     file_path: str | None = None
     nominatim_delay_seconds: float = 1.1
     overpass_min_interval_seconds: float = 1.75
+    recheck_after_days: float = 21
+    max_combinations_per_day: int = 30
     geoapify: GeoapifyConfig = Field(default_factory=GeoapifyConfig)
 
 
