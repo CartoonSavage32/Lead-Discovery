@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 from pathlib import Path
 
-from app.models import AppState
+from app.models import AppState, CombinationState
+
+logger = logging.getLogger(__name__)
 
 _REPLACE_ATTEMPTS = 6
 _REPLACE_BACKOFF_SECONDS = 0.05
@@ -41,11 +44,30 @@ def atomic_write_text(path: Path, content: str) -> None:
             pass
 
 
+def combination_state_key(country: str, city: str, industry: str) -> str:
+    return f"{country}|{city}|{industry}"
+
+
+def canonicalize_processed_combinations(state: AppState) -> AppState:
+    rebuilt: dict[str, CombinationState] = {}
+    for original_key, item in state.processed_combinations.items():
+        canonical = combination_state_key(item.country, item.city, item.industry)
+        rebuilt[canonical] = item.model_copy(update={"key": canonical})
+        if original_key != canonical:
+            logger.warning(
+                "Re-keyed processed combination %r -> %s",
+                original_key,
+                canonical,
+            )
+    state.processed_combinations = rebuilt
+    return state
+
+
 def load_state(path: Path) -> AppState:
     if not path.exists():
         return AppState()
     raw = json.loads(path.read_text(encoding="utf-8"))
-    return AppState.model_validate(raw)
+    return canonicalize_processed_combinations(AppState.model_validate(raw))
 
 
 def save_state(path: Path, state: AppState) -> None:

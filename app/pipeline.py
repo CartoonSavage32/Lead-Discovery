@@ -15,7 +15,14 @@ from app.audit.beavercheck import BeaverCheckClient, missing_audit
 from app.audit.pagespeed import PageSpeedClient
 from app.audit.service import AuditService, unique_website_urls
 from app.catalog import load_cities, load_countries, load_industries
-from app.combinations import earliest_recheck_at, load_geo, next_combination, next_recheck_combination
+from app.combinations import (
+    combination_coverage,
+    earliest_recheck_at,
+    format_combination_coverage,
+    load_geo,
+    next_combination,
+    next_recheck_combination,
+)
 from app.config import AppConfig
 from app.contacts.discover import discover_contacts
 from app.discovery.factory import build_discovery
@@ -55,6 +62,17 @@ class LeadApp:
         self.cities = load_cities(Path(config.cities_file))
         self.industries = load_industries(Path(config.industries_file))
         self.combinations = load_geo(self.countries, self.cities, self.industries)
+        logger.info(
+            "Loaded %s combinations from %s cities x %s industries (%s); "
+            "countries=%s cities=%s industries=%s",
+            len(self.combinations),
+            len(self.cities),
+            len(self.industries),
+            ", ".join(item.name for item in self.industries),
+            config.countries_file,
+            config.cities_file,
+            config.industries_file,
+        )
         self.store = StateStore(config.state_path)
         config.reports_dir.mkdir(parents=True, exist_ok=True)
         self._hourly_leads: list[Lead] = []
@@ -68,6 +86,11 @@ class LeadApp:
         self._idle_sleep_seconds = 600.0
         self._discovery_paused_until = 0.0
         self._quota_message_logged = False
+        coverage = combination_coverage(
+            self.combinations,
+            set(self.store.state.processed_combinations),
+        )
+        logger.info("Combination coverage:\n%s", format_combination_coverage(coverage))
 
     def _client(self) -> httpx.AsyncClient:
         return httpx.AsyncClient(
@@ -520,7 +543,18 @@ class LeadApp:
                                 self.store.state.daily_combinations_processed,
                             )
                         else:
+                            coverage = combination_coverage(
+                                self.combinations,
+                                set(self.store.state.processed_combinations),
+                            )
                             next_eligible_at = self._earliest_recheck_time()
+                            if coverage["truly_new"]:
+                                logger.error(
+                                    "Idle with %s current-config combinations missing from "
+                                    "state; next=%s. Refusing to treat these as recheck-gated.",
+                                    coverage["truly_new"],
+                                    next_eligible_at,
+                                )
                             logger.info(
                                 "No combinations available right now; next recheck-eligible "
                                 "combination unlocks at %s. Sleeping.",

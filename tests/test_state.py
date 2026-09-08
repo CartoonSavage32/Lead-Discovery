@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -10,7 +11,25 @@ from app.scheduler import report_due
 from app.state import StateStore, load_state, save_state
 
 
-def test_state_roundtrip_atomic(tmp_path: Path):
+def test_canonicalize_rekeys_processed_combinations(tmp_path: Path):
+    path = tmp_path / "state.json"
+    payload = {
+        "processed_combinations": {
+            "India|Mumbai": {
+                "key": "India|Mumbai",
+                "country": "India",
+                "city": "Mumbai",
+                "industry": "bakery",
+                "completed_at": datetime.now(UTC).isoformat(),
+                "business_count": 1,
+            }
+        }
+    }
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    loaded = load_state(path)
+    assert "India|Mumbai" not in loaded.processed_combinations
+    assert "India|Mumbai|bakery" in loaded.processed_combinations
+    assert loaded.processed_combinations["India|Mumbai|bakery"].key == "India|Mumbai|bakery"
     path = tmp_path / "state.json"
     store = StateStore(path)
     store.state.processed_combinations["India|Mumbai|bakery"] = CombinationState(

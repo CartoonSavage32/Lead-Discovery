@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from random import Random
 
 from app.catalog import load_cities, load_countries, load_industries
@@ -9,6 +10,7 @@ from app.combinations import (
     shuffle_combinations,
     unprocessed_combinations,
 )
+from app.pipeline import LeadApp
 
 
 def test_combination_generation(sample_files):
@@ -96,6 +98,64 @@ def test_recheck_picks_oldest_past_window(sample_files):
     assert skipped is None
 
 
+def test_new_industry_is_immediately_available_as_tier1(
+    app_config, tmp_data: Path, sample_files: dict[str, Path]
+):
+    from datetime import UTC, datetime, timedelta
+
+    import yaml
+
+    from app.models import CombinationState
+
+    app_config.discovery.max_combinations_per_day = 30
+    app_config.discovery.recheck_after_days = 21
+    completed = datetime.now(UTC) - timedelta(days=2)
+    app = LeadApp(app_config, rng=Random(0))
+    old_keys = {item.key for item in app.combinations}
+    assert all(item.industry in {"bakery", "dentist"} for item in app.combinations)
+    for combination in app.combinations:
+        app.store.state.processed_combinations[combination.key] = CombinationState(
+            key=combination.key,
+            country=combination.country,
+            city=combination.city,
+            industry=combination.industry,
+            completed_at=completed,
+        )
+    app.store.persist()
+    assert app._next_combination() is None
+
+    industries = yaml.safe_load(sample_files["industries"].read_text(encoding="utf-8"))
+    industries.append(
+        {
+            "name": "photographer",
+            "commercial": True,
+            "osm_tags": [{"key": "craft", "value": "photographer"}],
+        }
+    )
+    sample_files["industries"].write_text(yaml.safe_dump(industries), encoding="utf-8")
+
+    restarted = LeadApp(app_config, rng=Random(0))
+    nxt = restarted._next_combination()
+    assert nxt is not None
+    assert nxt.industry == "photographer"
+    assert nxt.key not in old_keys
+    assert restarted._earliest_recheck_time() is not None
+    assert restarted._earliest_recheck_time() > datetime.now(UTC)
+
+    restarted.store.state.daily_counter_date = datetime.now(UTC).date().isoformat()
+    restarted.store.state.daily_combinations_processed = 30
+    assert restarted._daily_cap_reached()
+    assert restarted._next_combination() is None
+
+
+def test_combination_key_includes_industry():
+    from app.models import Combination
+
+    key = Combination(country="France", city="Paris", industry="photographer").key
+    assert key == "France|Paris|photographer"
+    assert key.split("|") == ["France", "Paris", "photographer"]
+
+
 def test_earliest_recheck_time_is_oldest_plus_window():
     from datetime import UTC, datetime, timedelta
 
@@ -121,4 +181,3 @@ def test_earliest_recheck_time_is_oldest_plus_window():
     }
     nxt = earliest_recheck_at(processed, recheck_after_days=21)
     assert nxt == (now - timedelta(days=10)) + timedelta(days=21)
-
